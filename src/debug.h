@@ -17,6 +17,8 @@
 
 #include <stdint.h>
 
+#include "enhancements.h"
+
 #define DEBUG_MAGIC 0x44424730u  /* "DBG0" */
 
 /* dbg.motion values */
@@ -86,6 +88,19 @@ struct debug_block {
     /* --- heat --- */
     uint32_t heat_on;
     uint32_t heat_ms;       /* elapsed, against the 60 min auto-off */
+
+    /* --- enhancements ---
+     *
+     * Guarded, not merely appended: the block is pinned at the start of RAM, so
+     * growing it shifts every static after it and the reference build would no
+     * longer be bit-identical to the firmware it is meant to reproduce.
+     */
+#if ENH_END_OF_TRAVEL_STOP
+    uint32_t arrivals;      /* motions ended by the end-of-travel stop */
+#endif
+#if ENH_POWER_DOUBLE_TAP
+    uint32_t auto_moves;    /* double-tap POWER macros started */
+#endif
 };
 
 extern volatile struct debug_block dbg;

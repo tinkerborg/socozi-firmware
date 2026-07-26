@@ -105,6 +105,7 @@ static uint32_t pause_start_ms;
  * idle branch.
  */
 static uint32_t vent_start_ms;
+static int      venting;
 
 int pneumatics_massage_on(void) { return massage_on; }
 
@@ -156,6 +157,23 @@ static void start_vent(void)
 {
     valves_set(VALVE_VENT);
     vent_start_ms = ms_ticks;
+    venting       = 1;
+}
+
+/* A vent runs to completion even while a motor is moving.
+ *
+ * The motion pause is a pump-current budget, and the exhaust drives no pump, so
+ * there is nothing to save by closing it. Confirmed on the chair: the factory
+ * firmware keeps deflating when a motion button is pressed mid-vent.
+ */
+static void vent_tick(void)
+{
+    if ((ms_ticks - vent_start_ms) >= VENT_MS) {
+        venting = 0;
+        valves_set(0);
+    } else {
+        valves_set(VALVE_VENT);
+    }
 }
 
 static void set_lumbar(uint8_t state)
@@ -163,6 +181,11 @@ static void set_lumbar(uint8_t state)
     lumbar_state       = state;
     lumbar_state_ms    = ms_ticks;
     dbg.lumbar_state = state;
+
+    /* Lumbar owns the valves now, including its own deflate. Leaving a vent
+     * flagged would let it reopen the exhaust later.
+     */
+    venting = 0;
 }
 
 static void massage_tick(void)
@@ -236,6 +259,7 @@ void pneumatics_button(uint8_t button)
     case HS_MASSAGE:
         massage_on = !massage_on;
         if (massage_on) {
+            venting          = 0;   /* massage owns the valves, see set_lumbar */
             lumbar_state     = LUMBAR_OFF;
             dbg.lumbar_state = lumbar_state;
             massage_step     = 0;
@@ -274,7 +298,23 @@ void pneumatics_update(void)
             paused         = 1;
             pause_start_ms = ms_ticks;
         }
-        valves_set(0);
+
+        /* Same ownership order as the unpaused path below, so a stale flag from
+         * a lower priority can never take the valves back. Only the two
+         * exhaust-only cases keep running, see vent_tick(); everything that
+         * inflates pauses, because inflation is what costs pump current.
+         */
+        if (massage_on) {
+            valves_set(0);              /* pump stops, LED stays lit */
+        } else if (lumbar_state == LUMBAR_DEFLATE) {
+            lumbar_tick();
+        } else if (lumbar_state != LUMBAR_OFF) {
+            valves_set(0);              /* inflate and hold both pause */
+        } else if (venting) {
+            vent_tick();
+        } else {
+            valves_set(0);
+        }
         return;
     }
 
@@ -289,8 +329,14 @@ void pneumatics_update(void)
         paused = 0;
         if (massage_step_ms)  massage_step_ms  += held;
         if (massage_start_ms) massage_start_ms += held;
-        lumbar_state_ms += held;
-        vent_start_ms   += held;
+
+        /* Only deadlines that actually stopped get pushed forward. A vent and a
+         * lumbar deflate ran right through the pause, so moving theirs would
+         * hold the exhaust open for the length of the motion.
+         */
+        if (lumbar_state != LUMBAR_DEFLATE) {
+            lumbar_state_ms += held;
+        }
     }
 
     if (massage_on) {
@@ -305,10 +351,10 @@ void pneumatics_update(void)
         massage_tick();
     } else if (lumbar_state != LUMBAR_OFF) {
         lumbar_tick();
+    } else if (venting) {
+        vent_tick();
     } else if (valves_now != 0) {
-        if ((ms_ticks - vent_start_ms) >= VENT_MS) {
-            valves_set(0);
-        }
+        valves_set(0);          /* nothing owns these, don't leave them open */
     }
 
     pump_update();

@@ -13,6 +13,7 @@
  */
 
 #include "adc.h"
+#include "enhancements.h"
 #include "gd32e23x.h"
 #include "gpio.h"
 #include "handset.h"
@@ -41,6 +42,22 @@
  */
 #define POWER_LONG_MS 2000
 
+/* Double-press POWER within this long to run the same macro without holding.
+ * Long enough for a deliberate double tap, short enough that two separate
+ * intentional power toggles don't trip it.
+ */
+#define POWER_DOUBLE_MS 400
+
+#if ENH_POWER_DOUBLE_TAP
+/* Half on, half off, so a full cycle is twice this. */
+#define POWER_BLINK_MS 500
+
+/* File scope rather than a static inside handset_update(), because led_update()
+ * has to see it to blink POWER while the move runs.
+ */
+static int auto_flatten;        /* macro driving with nothing held */
+#endif
+
 volatile struct debug_block dbg __attribute__((section(".debug_block")));
 
 /* Mirror what we're actually driving back to the handset LEDs rather than
@@ -67,7 +84,20 @@ static void led_update(void)
     if (pneumatics_lumbar_lit())  bits |= LED_LUMBAR;
     if (pneumatics_massage_on())  bits |= LED_MASSAGE;
     if (heat_is_on())             bits |= LED_HEAT;
-    if (power_is_on())            bits |= LED_POWER;
+
+    int power_led = power_is_on();
+
+#if ENH_POWER_DOUBLE_TAP
+    /* The macro switches the gate off, so POWER would otherwise just go dark.
+     * Blinking it says the chair is moving under its own direction rather than
+     * because something is stuck.
+     */
+    if (auto_flatten) {
+        power_led = ((ms_ticks / POWER_BLINK_MS) & 1);
+    }
+#endif
+
+    if (power_led)                bits |= LED_POWER;
 
     handset_set_leds(bits);
 }
@@ -89,16 +119,34 @@ static void power_short_press(void)
     }
 }
 
-/* Long POWER press: stop everything, then drive the chair flat. */
+/* Long POWER press: start driving the chair flat, and nothing else.
+ *
+ * Comfort functions keep running and their LEDs stay lit for the whole move;
+ * the factory only switches them off once the macro ends. Observed on the
+ * chair: lumbar stays inflated and heat stays on while it drives, massage keeps
+ * its LED although the pause stops the pump, and everything goes out together
+ * at the end, followed by the vent.
+ *
+ * ENH_POWER_DOUBLE_TAP reuses this verbatim; a double tap is a shortcut for the
+ * hold, not a second behaviour.
+ */
 static void power_long_press(void)
+{
+    motion_request(MOTION_FLATTEN);
+}
+
+/* The other half: what the factory does when the macro ends. Everything off,
+ * gate off, and pneumatics_shutdown() starts the vent. Reached on release of a
+ * held POWER, and under ENH_POWER_DOUBLE_TAP also when an unattended move
+ * reaches the stops.
+ */
+static void power_macro_finish(void)
 {
     comfort_all_off();
 
     if (power_is_on()) {
         power_toggle();
     }
-
-    motion_request(MOTION_FLATTEN);
 }
 
 /* Route a comfort-function press. Everything here is behind the POWER gate;
@@ -130,6 +178,10 @@ static void handset_update(void)
     static uint8_t  prev_button;
     static uint32_t power_down_ms;
     static int      power_long_done;
+#if ENH_POWER_DOUBLE_TAP
+    static uint32_t power_up_ms;    /* when the last short press was released */
+    static int      power_tapped;
+#endif
 
     uint8_t  button = handset_button();
     uint32_t want   = MOTION_NONE;
@@ -152,7 +204,31 @@ static void handset_update(void)
             comfort_button(button);
         } else if (prev_button == HS_POWER && !power_long_done) {
             dbg.presses++;
+#if ENH_POWER_DOUBLE_TAP
+            /* The first tap has already run its ordinary toggle by the time we
+             * know a second one is coming. That washes out: the macro ends with
+             * every comfort function off and the gate off whichever way the
+             * toggle went. So nothing needs deferring, and a single press keeps
+             * its usual immediate response.
+             */
+            if (power_tapped && (ms_ticks - power_up_ms) <= POWER_DOUBLE_MS) {
+                power_tapped = 0;
+                auto_flatten = 1;
+                dbg.auto_moves++;
+                power_long_press();
+            } else {
+                power_tapped = 1;
+                power_up_ms  = ms_ticks;
+                power_short_press();
+            }
+#else
             power_short_press();
+#endif
+        } else if (prev_button == HS_POWER && power_long_done) {
+            /* Release ends a held macro: this is where the factory switches
+             * everything off and starts the vent.
+             */
+            power_macro_finish();
         }
 
         prev_button = button;
@@ -181,6 +257,29 @@ static void handset_update(void)
 
     default:               want = MOTION_NONE;          break;
     }
+
+#if ENH_POWER_DOUBLE_TAP
+    /* Holding POWER keeps the flatten alive through the switch above. A double
+     * tap has nothing held, so the request has to be renewed here instead,
+     * until motion.c ends it, at the stops or on the timeout ceiling.
+     *
+     * Any button cancels, matching the rule that any other button interrupts
+     * the held version.
+     */
+    if (auto_flatten) {
+        if (button != HS_NONE) {
+            auto_flatten = 0;           /* cancelled, leave everything as it is */
+        } else if (motion_active() == MOTION_NONE) {
+            /* The move ended on its own, at the stops or on the ceiling. This
+             * is the unattended equivalent of releasing a held POWER.
+             */
+            auto_flatten = 0;
+            power_macro_finish();
+        } else {
+            want = MOTION_FLATTEN;
+        }
+    }
+#endif
 
     motion_request(want);
     motion_update(dbg.adc);

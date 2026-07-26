@@ -5,13 +5,36 @@ SIZE    = $(CROSS)size
 
 BUILD    = build
 BACKUPS  = backup
-TARGET   = $(BUILD)/socozi
 WATCHDOG ?= 1
+
+# Build variant. ENHANCED=1, the default, builds the enhanced firmware; the
+# `reference` target rebuilds with ENHANCED=0, which is the factory-equivalent
+# behaviour described in docs/firmware-spec.md and the fallback if an
+# enhancement misbehaves in the chair.
+#
+# The two variants get different filenames so a reference image is never
+# mistaken for an enhanced one on the bench. Nothing else needs separating:
+# the firmware links in a single compiler invocation, so there are no
+# intermediate objects to go stale between variants.
+ENHANCED ?= 1
+
+ifeq ($(ENHANCED),0)
+SUFFIX = -reference
+else
+SUFFIX =
+endif
+
+TARGET   = $(BUILD)/socozi$(SUFFIX)
 
 SRCS    = src/main.c src/adc.c src/gpio.c src/handset.c src/heat.c \
           src/motion.c src/pneumatics.c src/power.c src/timing.c \
           src/watchdog.c src/startup.c
 LDSCRIPT = gd32e230c8.ld
+
+# The link is one compiler invocation, so there is no per-object dependency
+# tracking to lean on. Headers gate real behaviour now, enhancements.h most of
+# all, so a header edit that didn't rebuild would silently flash a stale image.
+HDRS    = $(wildcard src/*.h)
 
 CFLAGS  = -mcpu=cortex-m23 -mthumb -Os -g3 -std=c11
 CFLAGS += -Wall -Wextra -ffunction-sections -fdata-sections
@@ -31,6 +54,13 @@ OPENOCD_ARGS = -c "adapter driver cmsis-dap" \
                -c "flash bank chip.flash stm32f1x 0x08000000 0x10000 0 0 chip.cpu"
 
 all: $(TARGET).bin
+
+# The factory-equivalent build, with every enhancement compiled out.
+reference:
+	@$(MAKE) --no-print-directory ENHANCED=0 all
+
+flash-reference:
+	@$(MAKE) --no-print-directory ENHANCED=0 flash
 
 # Both tools are system packages; see README.md for per-distro install lines.
 check:
@@ -57,8 +87,8 @@ check:
 $(BUILD):
 	mkdir -p $(BUILD)
 
-$(TARGET).elf: $(SRCS) $(LDSCRIPT) | $(BUILD)
-	$(CC) $(CFLAGS) -DWATCHDOG=$(WATCHDOG) $(LDFLAGS) \
+$(TARGET).elf: $(SRCS) $(HDRS) $(LDSCRIPT) | $(BUILD)
+	$(CC) $(CFLAGS) -DWATCHDOG=$(WATCHDOG) -DENHANCED=$(ENHANCED) $(LDFLAGS) \
 	      -Wl,-Map=$(TARGET).map $(SRCS) -o $@
 	@$(SIZE) $@
 
@@ -71,14 +101,22 @@ symbols: $(TARGET).elf
 # gpio.h and timing.h, so linking fakes for those two runs the real logic
 # natively. No hardware, no cross compiler.
 TEST_SRCS  = pneumatics motion heat
-TEST_BINS  = $(TEST_SRCS:%=$(BUILD)/test_%)
+TEST_BINS  = $(TEST_SRCS:%=$(BUILD)/test_%$(SUFFIX))
 TEST_CC    = cc
 TEST_FLAGS = -std=c11 -Wall -Wextra -g -Itests
 
-$(BUILD)/test_%: tests/test_%.c tests/fakes.c src/pneumatics.c src/motion.c src/heat.c | $(BUILD)
-	$(TEST_CC) $(TEST_FLAGS) $^ -o $@
+$(BUILD)/test_%$(SUFFIX): tests/test_%.c tests/fakes.c src/pneumatics.c src/motion.c src/heat.c $(HDRS) | $(BUILD)
+	$(TEST_CC) $(TEST_FLAGS) -DENHANCED=$(ENHANCED) $(filter %.c,$^) -o $@
 
-test: $(TEST_BINS)
+# Both variants, always. An enhancement that breaks the reference path has
+# broken the thing we fall back to, and that should fail the build, not wait to
+# be discovered on the chair.
+test:
+	@$(MAKE) --no-print-directory ENHANCED=1 test-variant
+	@$(MAKE) --no-print-directory ENHANCED=0 test-variant
+
+test-variant: $(TEST_BINS)
+	@echo "-- tests: ENHANCED=$(ENHANCED)"
 	@fail=0; for t in $(TEST_BINS); do ./$$t || fail=1; done; exit $$fail
 
 # Coverage of the three tested modules, in gcov format for Codecov.
@@ -91,7 +129,7 @@ test: $(TEST_BINS)
 # `cc` is clang on macOS and gcc on CI, and their coverage data is not
 # interchangeable, so the reader has to match the compiler. Override with
 # GCOV=... if the guess is wrong.
-COV_DIR     = $(BUILD)/coverage
+COV_DIR     = $(BUILD)/coverage$(SUFFIX)
 COV_MODULES = src/pneumatics.c src/motion.c src/heat.c
 
 ifeq ($(shell uname -s),Darwin)
@@ -107,7 +145,7 @@ coverage:
 	  d=$(COV_DIR)/$$t; mkdir -p $$d; objs=""; \
 	  for s in $(COV_MODULES) tests/fakes.c tests/test_$$t.c; do \
 	    o=$$d/`basename $$s .c`.o; \
-	    $(TEST_CC) $(TEST_FLAGS) --coverage -c $$s -o $$o || exit 1; \
+	    $(TEST_CC) $(TEST_FLAGS) -DENHANCED=$(ENHANCED) --coverage -c $$s -o $$o || exit 1; \
 	    objs="$$objs $$o"; \
 	  done; \
 	  $(TEST_CC) --coverage -o $$d/run $$objs || exit 1; \
@@ -118,9 +156,10 @@ coverage:
 	exit $$fail
 	@echo "gcov reports under $(COV_DIR)"
 
-# What CI runs: the firmware must build for the target, and the tests must pass
+# What CI runs: both variants must build for the target, and the tests must pass
 # with coverage. Kept as one target so the pipeline has a single entry point.
-ci: all coverage
+# `coverage` measures the default enhanced build.
+ci: all reference coverage
 
 backup:
 	@mkdir -p $(BACKUPS)
@@ -167,4 +206,5 @@ reset:
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all check test coverage ci symbols backup flash restore restore-factory debug reset clean
+.PHONY: all reference check test test-variant coverage ci symbols backup flash \
+        flash-reference restore restore-factory debug reset clean
