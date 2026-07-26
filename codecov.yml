@@ -1,0 +1,36 @@
+# Coverage only means something for the modules that can run on a host.
+#
+# pneumatics.c, motion.c and heat.c reach the board through gpio.h and timing.h
+# and nothing else, so tests link fakes for those two and exercise the real
+# logic. Everything ignored below touches hardware registers directly and
+# cannot run off the chip without a refactor, so counting it would just report
+# a number that no amount of test writing could move.
+#
+# main.c is the interesting exception. Its button routing and power gating are
+# real logic worth testing, and getting there means separating them from the
+# register access. Until then it is ignored rather than pretended about.
+
+ignore:
+  - "tests/**"
+  - "src/main.c"
+  - "src/adc.c"
+  - "src/gpio.c"
+  - "src/handset.c"
+  - "src/power.c"
+  - "src/startup.c"
+  - "src/timing.c"
+  - "src/watchdog.c"
+
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+    patch:
+      default:
+        target: 80%
+
+comment:
+  layout: "reach, diff, files"
+  require_changes: true

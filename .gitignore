@@ -1,0 +1,8 @@
+# Build output — regenerable.
+build/
+
+# Flash dumps from `make backup`. factory-firmware.bin is deliberately not
+# ignored: it is the recovery image.
+backup/
+
+.DS_Store

@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Only the cross compiler is needed. OpenOCD is a flashing dependency,
+      # and nothing in CI touches hardware.
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi
+
+      # Builds the firmware for the target, then runs the host tests under
+      # coverage. One target so the pipeline and a developer run the same
+      # thing.
+      - name: Build and test
+        run: make ci
+
+      - name: Report firmware size
+        run: arm-none-eabi-size build/socozi.elf
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: build/coverage/*/*.gcov
+          fail_ci_if_error: true
+
+      - name: Archive firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: socozi-firmware
+          path: |
+            build/socozi.bin
+            build/socozi.elf
+            build/socozi.map
