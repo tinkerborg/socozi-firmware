@@ -4,12 +4,14 @@
  * only thing bounding a stuck-on heater. It is not optional, and it is wall
  * clock at every level.
  *
- * The gestures that choose a level are a control-layer concern, since they are
- * handset buttons being borrowed; that half is in test_control.c. What is
- * tested here is what heat.c does once a level has been chosen.
+ * The bar graph and the borrowed buttons live in adjust.c and are shared with
+ * massage intensity, so they are tested through test_control.c where the
+ * handset drives them. What is tested here is what heat.c does with a level
+ * once one has been chosen.
  */
 
 #include "harness.h"
+#include "../src/adjust.h"
 #include "../src/debug.h"
 #include "../src/enhancements.h"
 #include "../src/gpio.h"
@@ -22,6 +24,9 @@ static void tick(void)
 {
     motion_update(0);
     heat_update();
+#if ENH_HEAT_LEVELS
+    adjust_update();
+#endif
 }
 
 static void reset(void)
@@ -34,12 +39,12 @@ static void reset(void)
 
 #if ENH_HEAT_LEVELS
     /* The remembered level outlives heat_off() on purpose, so it also outlives
-     * a test. Put it back to the default through the ordinary interface, or
-     * every test after the first one to change it starts somewhere else.
+     * a test. Put it back to the default, or every test after the first one to
+     * change it starts somewhere else.
      */
     heat_press();
     heat_arm();
-    heat_select_level(HEAT_LEVEL_DEFAULT);
+    heat_set_level(HEAT_LEVEL_DEFAULT);
     heat_press();                       /* accept */
     heat_off();
 #endif
@@ -57,7 +62,7 @@ static void heat_on(void)
 
 #if ENH_HEAT_LEVELS
     heat_arm();
-    heat_select_level(HEAT_LEVEL_MAX);
+    heat_set_level(HEAT_LEVEL_MAX);
     heat_press();                       /* accept, and close the window */
 #endif
 }
@@ -177,7 +182,7 @@ TEST(each_level_is_its_share_of_the_period)
         reset();
         heat_press();
         heat_arm();
-        heat_select_level((uint8_t)want);
+        heat_set_level((uint8_t)want);
         heat_press();
 
         CHECK_EQ(heat_level(), want);
@@ -213,7 +218,7 @@ TEST(the_level_is_remembered_across_a_switch_off)
 
     heat_press();
     heat_arm();
-    heat_select_level(2);
+    heat_set_level(2);
     heat_press();
     CHECK_EQ(heat_level(), 2);
 
@@ -225,18 +230,6 @@ TEST(the_level_is_remembered_across_a_switch_off)
     run_ms(1);
     CHECK(heat_is_on());
     CHECK_EQ(heat_level(), 2);
-}
-
-/* A level is only taken while the buttons have been handed over. */
-TEST(a_level_outside_the_window_is_ignored)
-{
-    reset();
-
-    heat_press();                       /* tap on: a readout, not a menu */
-    CHECK(!heat_armed());
-
-    heat_select_level(1);
-    CHECK_EQ(heat_level(), HEAT_LEVEL_DEFAULT);
 }
 
 /* Holding while already on goes straight to the choice and does not switch
@@ -251,7 +244,8 @@ TEST(arming_while_on_only_opens_the_choice)
     CHECK(heat_is_on());
 
     heat_arm();
-    CHECK(heat_armed());
+    CHECK(adjust_armed());
+    CHECK_EQ(adjust_owner(), ADJUST_HEAT);
     CHECK(heat_is_on());
     CHECK_EQ(heat_level(), HEAT_LEVEL_DEFAULT);
 
@@ -262,39 +256,38 @@ TEST(arming_while_on_only_opens_the_choice)
     CHECK(!heat_is_on());
 }
 
-/* The window closes by itself on whatever is showing, and the buttons go back
- * to meaning motors.
- */
-TEST(the_window_closes_on_its_own)
+/* Accepting closes the choice without switching heat off. */
+TEST(the_owners_press_accepts_rather_than_switching_off)
 {
     reset();
 
     heat_press();
     heat_arm();
-    heat_select_level(3);
-    CHECK(heat_armed());
+    heat_set_level(3);
+    CHECK(adjust_armed());
 
-    run_ms(HEAT_ARM_REPICK_MS + 20);
-    CHECK(!heat_armed());
+    heat_press();
+    CHECK(!adjust_armed());
+    CHECK(heat_is_on());
     CHECK_EQ(heat_level(), 3);
 }
 
-/* Every pick renews the window, so a level can be felt and then corrected. */
-TEST(a_pick_renews_the_window)
+/* Switching off hands the adjuster back, so the motion buttons are motion
+ * buttons again immediately.
+ */
+TEST(switching_off_closes_the_adjuster)
 {
     reset();
 
     heat_press();
     heat_arm();
+    CHECK(adjust_armed());
 
-    for (int i = 0; i < 3; i++) {
-        heat_select_level(2);
-        run_ms(HEAT_ARM_REPICK_MS - 100);
-        CHECK(heat_armed());
-    }
-
-    run_ms(200);
-    CHECK(!heat_armed());
+    heat_press();                       /* accept */
+    heat_press();                       /* off */
+    CHECK(!heat_is_on());
+    CHECK(!adjust_armed());
+    CHECK_EQ(adjust_bar_mask(), 0);
 }
 
 /* The lamp blinks while the buttons are borrowed and is steady once they are
@@ -308,7 +301,7 @@ TEST(the_lamp_blinks_only_while_armed)
     heat_press();
     heat_arm();
 
-    for (uint32_t t = 0; t < HEAT_ARM_BLINK_MS * 4u; t += 50) {
+    for (uint32_t t = 0; t < ADJUST_BLINK_MS * 4u; t += 50) {
         run_ms(50);
         if (heat_led()) lit++; else dark++;
     }
@@ -318,87 +311,12 @@ TEST(the_lamp_blinks_only_while_armed)
 
     heat_press();                       /* accept, closing the window */
     run_ms(1);
-    CHECK(!heat_armed());
+    CHECK(!adjust_armed());
 
-    for (uint32_t t = 0; t < HEAT_ARM_BLINK_MS * 4u; t += 50) {
+    for (uint32_t t = 0; t < ADJUST_BLINK_MS * 4u; t += 50) {
         run_ms(50);
         CHECK(heat_led());
     }
-}
-
-/* Fills a lamp at a time from the bottom, sits at the level, then shifts up and
- * off the top. The exit is the same gesture at every level, which is the point
- * of expressing it as a shift.
- */
-TEST(the_bar_fills_in_and_slides_out)
-{
-    reset();
-
-    heat_press();
-    heat_arm();
-    heat_select_level(2);
-
-    CHECK_EQ(heat_bar_mask(), 0x3);     /* level two, both lamps, holding */
-
-    /* Accepting starts the slide at once: there is no reason to sit on a bar
-     * whose question has just been answered.
-     */
-    heat_press();
-    CHECK_EQ(heat_bar_mask(), 0x6);
-
-    run_ms(HEAT_BAR_STEP_MS + 10);
-    CHECK_EQ(heat_bar_mask(), 0xC);
-    run_ms(HEAT_BAR_STEP_MS);
-    CHECK_EQ(heat_bar_mask(), 0x8);
-
-    /* The last lit frame dwells longer than a step, so a narrow bar is still
-     * visible when it reaches the top lamp.
-     */
-    run_ms(HEAT_BAR_STEP_MS);
-    CHECK_EQ(heat_bar_mask(), 0x8);
-
-    run_ms(HEAT_BAR_EXIT_MS);
-    CHECK_EQ(heat_bar_mask(), 0);
-}
-
-/* A single-lamp bar is a dot that travels up and leaves, and it does reach the
- * top lamp rather than vanishing early.
- */
-TEST(a_level_one_bar_reaches_the_top_on_its_way_out)
-{
-    int saw_top = 0;
-
-    reset();
-
-    heat_press();
-    heat_arm();
-    heat_select_level(1);
-    heat_press();
-
-    for (uint32_t t = 0; t < HEAT_BAR_STEP_MS * 8u; t += 10) {
-        run_ms(10);
-        if (heat_bar_mask() == 0x8) {
-            saw_top++;
-        }
-    }
-
-    /* Held for the exit dwell, not a single step. */
-    CHECK(saw_top * 10 >= (int)HEAT_BAR_EXIT_MS);
-}
-
-/* Switching off takes the bar with it. A bar animating after the heat has gone
- * reads as the heat still doing something.
- */
-TEST(switching_off_takes_the_bar_down_without_a_slide)
-{
-    reset();
-
-    heat_press();
-    CHECK(heat_bar_mask() != 0);
-
-    heat_press();                       /* off */
-    CHECK_EQ(heat_bar_mask(), 0);
-    CHECK(!heat_is_on());
 }
 
 #endif /* ENH_HEAT_LEVELS */
@@ -416,14 +334,10 @@ int main(void)
     RUN(each_level_is_its_share_of_the_period);
     RUN(the_top_level_never_switches_off);
     RUN(the_level_is_remembered_across_a_switch_off);
-    RUN(a_level_outside_the_window_is_ignored);
     RUN(arming_while_on_only_opens_the_choice);
-    RUN(the_window_closes_on_its_own);
-    RUN(a_pick_renews_the_window);
+    RUN(the_owners_press_accepts_rather_than_switching_off);
+    RUN(switching_off_closes_the_adjuster);
     RUN(the_lamp_blinks_only_while_armed);
-    RUN(the_bar_fills_in_and_slides_out);
-    RUN(a_level_one_bar_reaches_the_top_on_its_way_out);
-    RUN(switching_off_takes_the_bar_down_without_a_slide);
 #endif
 
     printf("%d checks, %d failed\n\n", tests_run, tests_failed);

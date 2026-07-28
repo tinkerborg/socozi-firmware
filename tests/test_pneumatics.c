@@ -186,9 +186,34 @@ TEST(massage_stops_after_fifteen_minutes)
     CHECK_EQ(fake_shift, VALVE_VENT);    /* falls into the vent */
 }
 
-/* Three presses: inflate, hold, deflate. The deflate step must open the
- * exhaust *alone*. Adding the bladder bit turns the pump on and inflates,
- * which is exactly the bug this catches.
+/* Get lumbar inflated and holding, whichever way this build does it: a second
+ * press in the reference, a long-enough release with ENH_LUMBAR_HOLD_SET.
+ */
+#if ENH_LUMBAR_HOLD_SET
+/* A release, plus the tick that lets the new state reach the valves. press()
+ * already does this for a press; nothing does it for a release.
+ */
+static void lumbar_release(void)
+{
+    pneumatics_lumbar_release();
+    run_ms(1);
+}
+#endif
+
+static void lumbar_to_hold(void)
+{
+    press(HS_LUMBAR);
+#if ENH_LUMBAR_HOLD_SET
+    run_ms(600);                         /* past LUMBAR_SET_MS */
+    lumbar_release();
+#else
+    press(HS_LUMBAR);
+#endif
+}
+
+/* Inflate, hold, deflate. However it is reached, the deflate step must open the
+ * exhaust *alone*. Adding the bladder bit turns the pump on and inflates, which
+ * is exactly the bug this catches.
  */
 TEST(lumbar_cycles_inflate_hold_deflate)
 {
@@ -200,7 +225,13 @@ TEST(lumbar_cycles_inflate_hold_deflate)
     run_ms(PUMP_DELAY);
     CHECK_EQ(fake_pin[PIN_PUMP], 1);
 
+#if ENH_LUMBAR_HOLD_SET
+    /* Held long enough to be deliberate, so the release stops it here. */
+    run_ms(600);
+    lumbar_release();
+#else
     press(HS_LUMBAR);
+#endif
     CHECK_EQ(fake_shift, 0);             /* closed valve traps the air */
     CHECK_EQ(fake_pin[PIN_PUMP], 0);
     CHECK(pneumatics_lumbar_lit());
@@ -335,8 +366,7 @@ TEST(massage_takes_the_valves_from_a_pending_vent)
 TEST(lumbar_deflate_keeps_running_through_a_motion)
 {
     reset();
-    press(HS_LUMBAR);                       /* inflate */
-    press(HS_LUMBAR);                       /* hold */
+    lumbar_to_hold();
     press(HS_LUMBAR);                       /* deflate */
     CHECK_EQ(fake_shift, VALVE_VENT);
 

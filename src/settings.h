@@ -25,17 +25,25 @@
  */
 void settings_init(void);
 
-/* The stored heat level, or 0 if the store has nothing to say. Callers
- * validate: a level outside their own range means absent, so a corrupt or
+/* Stored values, or 0 if the store has nothing to say about one. Callers
+ * validate: a value outside their own range means absent, so a corrupt or
  * half-written record degrades to a default rather than to a refusal.
+ *
+ * The lumbar level is an inflate duration in 100 ms units, which is what makes
+ * it fit a byte. See enhancements-spec.md §2.5 for why a duration is the only
+ * kind of level this hardware can express.
  */
 uint8_t settings_heat_level(void);
+uint8_t settings_lumbar_level(void);
+uint8_t settings_massage_level(void);
 
-/* Note a new level. Does not touch flash; marks it to be committed. Setting the
+/* Note a new value. Does not touch flash; marks it to be committed. Setting the
  * value that is already committed does nothing at all, so picking a level and
  * changing back writes nothing.
  */
 void settings_set_heat_level(uint8_t level);
+void settings_set_lumbar_level(uint8_t tenths);
+void settings_set_massage_level(uint8_t level);
 
 /* Call every loop. Commits a pending change when `quiet` is true.
  *

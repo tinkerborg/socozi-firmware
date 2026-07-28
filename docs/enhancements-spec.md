@@ -136,16 +136,16 @@ is a separate, deliberate gesture.
 - A **tap** with heat off **SHALL** switch it on at the remembered level. A tap
   with heat on **SHALL** switch it off.
 - The remembered level **SHALL** start at `HEAT_LEVEL_DEFAULT`, the top, so an
-  untouched chair behaves as the factory one does. It is held in RAM and does
-  not survive a reset; there is nowhere to persist it that is worth a flash
-  write per adjustment.
+  untouched chair behaves as the factory one does. It persists across a reset
+  per §2.4, and a stored value outside 1..`HEAT_LEVEL_MAX` **SHALL** be treated
+  as absent, so a corrupt record degrades to a working chair.
 - Switching on is refused while a motor is moving, unchanged from reference.
 
 #### Choosing a level
 
-- Holding HEAT for `BUTTON_HEAT_HOLD_MS` (1250 ms) **SHALL** switch heat on if
+- Holding HEAT for `BUTTON_ADJUST_HOLD_MS` (1250 ms) **SHALL** switch heat on if
   it was off, and **SHALL** hand the four motion buttons over to the levels for
-  `HEAT_ARM_MS` (8 s). Held HEAT is shorter than held POWER's 2 s on purpose:
+  `ADJUST_ARM_MS` (8 s). Held HEAT is shorter than held POWER's 2 s on purpose:
   POWER's hold starts the chair moving and should be hard to do by accident,
   where this only opens something you can ignore.
 - While handed over, the four motion buttons **SHALL** mean levels 1 to 4,
@@ -156,7 +156,7 @@ is a separate, deliberate gesture.
   the window closes on the same press, and the motor starts with the button
   still down.
 - A pick **SHALL** apply immediately and reopen the window for
-  `HEAT_ARM_REPICK_MS` (2 s), renewed by each further pick, so a level can be
+  `ADJUST_REPICK_MS` (2 s), renewed by each further pick, so a level can be
   felt and then corrected.
 - A short HEAT press while handed over **SHALL** accept the level showing and
   end the window. It does not switch heat off; there is a question on the table
@@ -170,7 +170,7 @@ is a separate, deliberate gesture.
 The four motion lamps show the level while it is relevant, and are otherwise
 left alone.
 
-- A tap that switches heat on **SHALL** raise the bar for `HEAT_BAR_MS` (2 s) as
+- A tap that switches heat on **SHALL** raise the bar for `ADJUST_READOUT_MS` (2 s) as
   a **readout only**: the four buttons keep their motor function throughout, and
   any button other than HEAT **SHALL** take the bar down early. HEAT itself does
   not, because that press may be the start of a hold.
@@ -178,13 +178,13 @@ left alone.
   are handed over. Pressing one of the things a menu is offering does not
   dismiss it.
 - The bar **SHALL** animate in one lamp at a time from the bottom, at
-  `HEAT_BAR_STEP_MS` (80 ms) a lamp.
+  `ADJUST_BAR_STEP_MS` (80 ms) a lamp.
 - The bar **SHALL** animate out by shifting the whole bar up one lamp per step,
   discarding whatever runs off the top, until nothing is lit. One rule for every
   level: a level four bar empties from the bottom, and a level one bar is a
   single dot that travels up and leaves.
 - Whichever frame is the **last one with a lamp still lit** **SHALL** be held for
-  `HEAT_BAR_EXIT_MS` (200 ms) rather than a step. How long the top lamp stays
+  `ADJUST_BAR_EXIT_MS` (200 ms) rather than a step. How long the top lamp stays
   lit otherwise depends on the width of the bar, and at level one it is a single
   step, which the eye misses because it is already following the dot off the
   edge.
@@ -197,12 +197,12 @@ left alone.
   motors, and a motion saying what it is doing outranks heat saying what it is
   about to do.
 
-#### The HEAT lamp
+#### The owner's own lamp
 
-- **SHALL** blink at `HEAT_ARM_BLINK_MS` (250 ms) while the buttons are handed
-  over, and be steady otherwise for as long as heat is on. Blinking therefore
-  means "still changeable", and it stops the moment the buttons go back to the
-  motors.
+- The lamp of whatever is being adjusted **SHALL** blink at `ADJUST_BLINK_MS`
+  (250 ms) while the buttons are handed over, and be steady otherwise for as
+  long as that function is on. Blinking therefore means "still changeable", and
+  it stops the moment the buttons go back to the motors.
 
 #### Duty cycling
 
@@ -243,10 +243,14 @@ rewritten.
 
 - The last 4 KiB page **SHALL** be reserved for the store and **SHALL NOT** be
   used by the linker for anything else.
-- A record **SHALL** be one 32-bit word: the payload in the low half and its
-  complement in the high half. An erased word is `0xFFFFFFFF`, whose halves are
-  not complements, so an erased slot is invalid by construction and needs no
-  separate in-use marker.
+- A record **SHALL** be one 32-bit word: three payload bytes and a check byte,
+  the check being the complement of their sum. An erased word is `0xFFFFFFFF`,
+  whose bytes sum to `0xFD` for a complement of `0x02`, which is not the `0xFF`
+  in the check position — so an erased slot is invalid by construction and needs
+  no separate in-use marker.
+- One byte per setting: heat level, lumbar level, massage intensity. A value
+  needing more than a byte would need the record widened rather than the bytes
+  rebalanced, since the check byte is what makes an erased slot invalid.
 - Records **SHALL** be appended to the first erased slot. The live value is the
   **highest-indexed valid record**, which works because writes only ever move
   forward.
@@ -292,6 +296,131 @@ to a working chair rather than a refusing one.
 
 Writes counted in `dbg.settings_writes`, erases in `dbg.settings_erases`.
 
+### 2.5 Lumbar hold-to-set, `ENH_LUMBAR_HOLD_SET` **[planned]**
+
+Reference behaviour: LUMBAR is a four-state cycle, inflate → hold → deflate →
+off, one press each, per [firmware-spec.md](firmware-spec.md#lumbar-done) §8.
+Getting a particular firmness means pressing once, waiting, and pressing again
+at the right moment, and there is no way to ask for the same firmness twice.
+
+This replaces the cycle with a set-and-recall: hold to inflate to where you want
+it, and from then on a tap goes straight back there.
+
+There is no position or pressure sensor, so a "level" is only **how long the
+bottom cell was inflated for**. That is enough to be repeatable, because the
+same duration through the same pump and valve gives the same firmness. It is not
+a measurement of anything, and it will not track a slow leak.
+
+#### Setting a level
+
+- Pressing LUMBAR while it is off or deflating **SHALL** begin inflating
+  immediately, on the press edge, not on a hold threshold. The response to
+  pressing the button is the pump starting.
+- Releasing after `LUMBAR_SET_MS` (500 ms) or more **SHALL** stop the pump,
+  hold, and store the elapsed inflate time as the level.
+- Inflating **SHALL** stop at `LUMBAR_INFLATE_MAX_MS` however long the button is
+  held, and that ceiling **SHALL** be stored as the level. It is the existing
+  bound from the reference firmware and is unchanged.
+- Elapsed time **SHALL** be measured from the valve opening, not from the pump
+  starting. `PUMP_DELAY_MS` of it is therefore dead time — but the same dead
+  time occurs on replay, so the two cancel and the stored figure stays faithful.
+- Time spent paused by a motion **SHALL NOT** count, the same way the reference
+  lumbar deadline already excludes it.
+
+#### Recalling it
+
+- Releasing before `LUMBAR_SET_MS` is a tap, and **SHALL** continue inflating to
+  the stored level and then hold. The pump does not stop and restart; the tap
+  simply means "keep going until the usual place" instead of "stop here".
+- A tap with no level stored **SHALL** inflate to `LUMBAR_INFLATE_MAX_MS`, which
+  is what the reference firmware's inflate step does when left alone.
+- If the stored level has already been passed by the time the button is
+  released, it **SHALL** hold immediately rather than deflating back to it.
+  There is no way down but the exhaust, and emptying the cell to reach a target
+  the user has just overshot by a fraction of a second is worse than the
+  overshoot.
+
+#### Switching off
+
+- Pressing while inflating or holding **SHALL** deflate, exactly as the
+  reference does, over the same `VENT_MS`.
+- Pressing while deflating **SHALL** start inflating again. The user has already
+  asked for off; a further press can only mean they changed their mind.
+
+#### Persistence
+
+The level **SHALL** be stored per §2.4, quantised to 100 ms units so it fits a
+byte, giving 0 to `LUMBAR_INFLATE_MAX_MS` in 200 steps. Zero means unset.
+
+Reported as `dbg.lumbar_level`, in the same 100 ms units.
+
+A bar graph for the level is intended and not specified here.
+
+### 2.6 Massage intensity, `ENH_MASSAGE_LEVELS` **[planned]**
+
+Reference behaviour: one intensity, the only one the factory offers, and it is
+the strongest the hardware can do. There is no way to ask for less.
+
+Four intensities, chosen exactly the way heat levels are — hold MASSAGE, pick on
+the borrowed motion buttons, same bar, same adjuster (§2.3). Only one thing owns
+the adjuster at a time, so opening massage's takes it from heat's.
+
+#### What intensity changes
+
+- The pattern **SHALL** keep its shape and its order. Every step happens, in the
+  same sequence, on the same cells.
+- An inflating step **SHALL** be made **shorter**, not gated. The cell is open
+  for less time, so less air goes in, and the sequencer moves on sooner. A
+  gentler massage is therefore also a **quicker** one.
+- It **SHALL NOT** hold a step open past the point it has finished inflating.
+  The massage has to keep moving; a shortened step is a shorter note, not the
+  same note followed by a rest.
+- Rests and vents **SHALL** keep their full duration. They are what lets a cell
+  bleed down between pulses, and shortening them would carry pressure from one
+  pulse into the next, working against the intensity being asked for.
+- Level 4 **SHALL** run every step at 100%, so the top level is byte-for-byte
+  the reference pattern.
+
+#### The curve
+
+A flat multiplier is wrong, and this is the part worth stating rather than
+leaving to a constant. The pattern's steps run from 5 to 80 ticks. A quarter of
+a 5-tick step is half a tick, which nobody would feel, and short pulses are most
+of the second and third movements — so a linear scale would not make the massage
+gentler, it would delete two thirds of it.
+
+- The scale **SHALL** therefore be interpolated by step length: the long
+  inflations take the full reduction, the short pulses much less. The percentage
+  is of the step's own duration.
+
+| Level | Longest steps | Shortest steps |
+|-------|---------------|----------------|
+| 1     | 25%           | 60%            |
+| 2     | 50%           | 72%            |
+| 3     | 75%           | 85%            |
+| 4     | 100%          | 100%           |
+
+- No inflating step **SHALL** be shorter than `MASSAGE_STEP_FLOOR_MS`, which is
+  the shortest step the factory pattern itself uses (500 ms). This is a hard
+  floor rather than a preference: after an all-closed step the pump takes
+  `PUMP_DELAY_MS` (300 ms) to come up, so a step much below it puts in nothing
+  at all, and a reduced level must not quietly become no level.
+- The numbers above are tuning, not architecture. They live in one table at the
+  top of `pneumatics.c` and are expected to move after time on the chair.
+
+#### Behaviour
+
+- Tapping MASSAGE **SHALL** toggle it, at the remembered intensity, and put the
+  bar up as a readout. Like HEAT, it acts on release so the hold can mean
+  something else.
+- Holding MASSAGE **SHALL** switch it on if it was off, and open the adjuster on
+  its intensity.
+- Intensity **SHALL** persist per §2.4, and **SHALL** be re-read when massage
+  starts, not held across a shutdown.
+- Starting massage while a motor moves is refused, unchanged.
+
+Reported as `dbg.massage_level`.
+
 ### Where this lives
 
 The macros are in [../src/macros/](../src/macros/), one file per macro. Hold and
@@ -305,10 +434,19 @@ shorter than POWER's. That is the whole of the special-casing; the alternative
 was threading a threshold in from `control.c`, which would put timing back in
 the caller the module exists to take it out of.
 
-Level, duty, the window and the bar animation all live in `heat.c`, which
-publishes the bar as a lamp mask rather than a level, because a bar sliding off
-the top is not a level. `control.c` owns the mapping from that mask to actual
-lamps, the routing of a borrowed motion button, and the latch that keeps a
+The adjuster is [../src/adjust.c](../src/adjust.c): the bar animation, the
+window, and which function currently owns the borrowed buttons. It knows how
+many lamps to light and nothing about what a level means, and publishes the bar
+as a lamp mask rather than a level, because a bar sliding off the top is not a
+level.
+
+Its two users own only what a level means to them — `heat.c` the duty cycle,
+`pneumatics.c` the pump gating. Neither knows the other exists; they meet at the
+adjuster, which has one owner at a time because there is one set of motion
+buttons and one bar.
+
+`control.c` owns the mapping from mask to actual lamps, the routing of a
+borrowed motion button to whoever asked for it, and the latch that keeps a
 borrowed press off the motors until it is released.
 
 Both paths are covered by `tests/test_control.c`, driven by button code and

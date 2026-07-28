@@ -42,6 +42,53 @@ static void save(uint8_t level)
     settings_update(1);
 }
 
+/* Three settings share one record, so a change to any of them commits all
+ * three. Keeping them independent is the point of the byte layout.
+ */
+TEST(the_three_settings_do_not_disturb_each_other)
+{
+    blank();
+
+    settings_set_heat_level(3);
+    settings_set_lumbar_level(120);
+    settings_set_massage_level(2);
+    settings_update(1);
+
+    CHECK_EQ(fake_flash_writes, 1);      /* one record, not three */
+
+    reboot();
+    CHECK_EQ(settings_heat_level(), 3);
+    CHECK_EQ(settings_lumbar_level(), 120);
+    CHECK_EQ(settings_massage_level(), 2);
+
+    /* Changing one leaves the others exactly where they were. */
+    settings_set_heat_level(1);
+    settings_update(1);
+
+    reboot();
+    CHECK_EQ(settings_heat_level(), 1);
+    CHECK_EQ(settings_lumbar_level(), 120);
+    CHECK_EQ(settings_massage_level(), 2);
+}
+
+/* The lumbar level uses the full byte, so the record has to carry 0xFF without
+ * colliding with an erased slot.
+ */
+TEST(a_full_byte_value_is_not_an_erased_slot)
+{
+    blank();
+
+    settings_set_heat_level(0xFF);
+    settings_set_lumbar_level(0xFF);
+    settings_set_massage_level(0xFF);
+    settings_update(1);
+
+    reboot();
+    CHECK_EQ(settings_heat_level(), 0xFF);
+    CHECK_EQ(settings_lumbar_level(), 0xFF);
+    CHECK_EQ(settings_massage_level(), 0xFF);
+}
+
 TEST(a_blank_store_has_nothing_to_say)
 {
     blank();
@@ -226,6 +273,8 @@ int main(void)
     RUN(an_erased_slot_is_not_a_record);
     RUN(a_refused_write_is_not_retried);
     RUN(a_corrupt_record_is_ignored);
+    RUN(the_three_settings_do_not_disturb_each_other);
+    RUN(a_full_byte_value_is_not_an_erased_slot);
 #else
     printf("- disabled in this build\n");
 #endif

@@ -23,12 +23,13 @@
  */
 #define BUTTON_HOLD_MS 2000
 
-#if ENH_HEAT_LEVELS
-/* HEAT's hold is shorter than POWER's, and deliberately so. POWER's hold starts
- * the chair moving, so it wants to be hard to do by accident; HEAT's only opens
- * something you can ignore, and it is a thing you do often.
+#if ADJUST_IN_USE
+/* The hold that opens a level adjuster, on HEAT or MASSAGE. Shorter than
+ * POWER's, and deliberately so: POWER's hold starts the chair moving, so it
+ * wants to be hard to do by accident, where this only opens something you can
+ * ignore, and it is a thing you do often.
  */
-#define BUTTON_HEAT_HOLD_MS 1250
+#define BUTTON_ADJUST_HOLD_MS 1250
 #endif
 
 /* Two taps inside this window are a double tap. Long enough for a deliberate

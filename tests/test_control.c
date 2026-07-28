@@ -12,6 +12,7 @@
 
 #include "harness.h"
 
+#include "adjust.h"
 #include "button.h"
 #include "control.h"
 #include "debug.h"
@@ -65,16 +66,21 @@ static void reset(void)
     pneumatics_shutdown();
     heat_off();
 
-#if ENH_HEAT_LEVELS
-    /* The remembered level outlives heat_off() on purpose, so it also outlives
-     * a test. Put it back to the default, or every test after the first one to
-     * change it starts somewhere else.
+    /* Remembered levels outlive their function being switched off, on purpose,
+     * so they also outlive a test. Put them back to the defaults, or every test
+     * after the first one to change them starts somewhere else.
      */
+#if ENH_HEAT_LEVELS
     heat_press();
     heat_arm();
-    heat_select_level(HEAT_LEVEL_DEFAULT);
+    heat_set_level(HEAT_LEVEL_DEFAULT);
     heat_press();                   /* accept */
     heat_off();
+#endif
+#if ENH_MASSAGE_LEVELS
+    pneumatics_massage_arm();
+    pneumatics_massage_set_level(ADJUST_LEVEL_MAX);
+    pneumatics_shutdown();
 #endif
 
     if (power_is_on()) {
@@ -122,7 +128,7 @@ static void heat_tap_on(void)
 {
     tap(HS_HEAT);
 #if ENH_HEAT_LEVELS
-    run_ms(HEAT_BAR_MS + HEAT_BAR_EXIT_MS + HEAT_BAR_STEP_MS * HEAT_LEVEL_MAX);
+    run_ms(HEAT_BAR_MS + ADJUST_BAR_EXIT_MS + ADJUST_BAR_STEP_MS * HEAT_LEVEL_MAX);
 #endif
 }
 
@@ -393,9 +399,9 @@ TEST(a_second_tap_is_just_another_power_toggle)
 
 #endif /* ENH_POWER_DOUBLE_TAP */
 
-#if ENH_HEAT_LEVELS
+#if ADJUST_IN_USE
 
-/* --- heat levels, enhancements-spec.md §2.3 --- */
+/* --- levels, enhancements-spec.md §2.3 --- */
 
 /* The four lamps the bar borrows, bottom to top, and the buttons that pick
  * those levels while the bar is a menu.
@@ -403,28 +409,33 @@ TEST(a_second_tap_is_just_another_power_toggle)
 #define BAR_LAMPS (LED_HEADREST_DOWN | LED_HEADREST_UP \
                    | LED_RECLINE_DOWN | LED_RECLINE_UP)
 
-static const uint8_t bar_lamp[HEAT_LEVEL_MAX] = {
+static const uint8_t bar_lamp[ADJUST_LEVEL_MAX] = {
     LED_HEADREST_DOWN, LED_HEADREST_UP, LED_RECLINE_DOWN, LED_RECLINE_UP
 };
 
-static const uint8_t level_button[HEAT_LEVEL_MAX] = {
+static const uint8_t level_button[ADJUST_LEVEL_MAX] = {
     HS_HEADREST_DOWN, HS_HEADREST_UP, HS_RECLINE_DOWN, HS_RECLINE_UP
 };
 
-/* Hold HEAT past its own threshold, which is shorter than POWER's. */
-static void hold_heat(void)
+/* Hold an adjuster's own button past its threshold, shorter than POWER's. */
+static void hold_adjust(uint8_t button)
 {
-    hold(HS_HEAT, BUTTON_HEAT_HOLD_MS + 20);
+    hold(button, BUTTON_ADJUST_HOLD_MS + 20);
     release(20);
 }
+
+static void hold_heat(void)    { hold_adjust(HS_HEAT); }
+static void hold_massage(void) { hold_adjust(HS_MASSAGE); }
 
 /* Let the bar finish sliding away, so a later assertion about the motion lamps
  * is not reading an outro.
  */
 static void settle_bar(void)
 {
-    run_ms(HEAT_BAR_EXIT_MS + HEAT_BAR_STEP_MS * HEAT_LEVEL_MAX + 20);
+    run_ms(ADJUST_BAR_EXIT_MS + ADJUST_BAR_STEP_MS * ADJUST_LEVEL_MAX + 20);
 }
+
+#if ENH_HEAT_LEVELS
 
 /* A tap asks nothing and returns to the level last used, which is what makes
  * the common case one press.
@@ -437,7 +448,7 @@ TEST(a_tap_switches_heat_on_at_the_remembered_level)
     tap(HS_HEAT);
     CHECK(heat_is_on());
     CHECK_EQ(heat_level(), HEAT_LEVEL_DEFAULT);
-    CHECK(!heat_armed());               /* a readout, not a menu */
+    CHECK(!adjust_armed());               /* a readout, not a menu */
 
     tap(HS_HEAT);
     CHECK(!heat_is_on());
@@ -453,19 +464,19 @@ TEST(holding_heat_opens_the_level_buttons)
 
     hold_heat();
     CHECK(heat_is_on());
-    CHECK(heat_armed());
+    CHECK(adjust_armed());
 
     /* And the release that ended the hold did not toggle it back off. */
     run_ms(50);
     CHECK(heat_is_on());
 
     tap(HS_HEAT);                       /* accept, closing the window */
-    CHECK(!heat_armed());
+    CHECK(!adjust_armed());
     CHECK(heat_is_on());                /* not an off switch, an answer */
 
     settle_bar();
     hold_heat();                        /* already on: straight to the choice */
-    CHECK(heat_armed());
+    CHECK(adjust_armed());
     CHECK(heat_is_on());
 }
 
@@ -477,7 +488,7 @@ TEST(the_motion_buttons_pick_levels_while_armed)
         tap(HS_POWER);
 
         hold_heat();
-        CHECK(heat_armed());
+        CHECK(adjust_armed());
 
         tap(level_button[i]);
         CHECK_EQ(heat_level(), i + 1);
@@ -493,15 +504,15 @@ TEST(a_borrowed_button_never_reaches_its_motor)
     reset();
     tap(HS_POWER);
     hold_heat();
-    CHECK(heat_armed());
+    CHECK(adjust_armed());
 
     /* Hold the level button down far longer than the window it just closed. */
-    hold(HS_RECLINE_UP, HEAT_ARM_REPICK_MS + ENGAGED_MS);
+    hold(HS_RECLINE_UP, ADJUST_REPICK_MS + ENGAGED_MS);
 
     CHECK_EQ(heat_level(), HEAT_LEVEL_MAX);
     CHECK_EQ(motion_active(), MOTION_NONE);
     CHECK(!any_recline_pin());
-    CHECK(!heat_armed());               /* the window did close underneath */
+    CHECK(!adjust_armed());               /* the window did close underneath */
 
     release(10);
 
@@ -523,8 +534,8 @@ TEST(the_buttons_go_back_to_the_motors)
     tap(level_button[0]);
     CHECK_EQ(heat_level(), 1);
 
-    run_ms(HEAT_ARM_REPICK_MS + 20);
-    CHECK(!heat_armed());
+    run_ms(ADJUST_REPICK_MS + 20);
+    CHECK(!adjust_armed());
 
     hold(HS_HEADREST_DOWN, ENGAGED_MS);
     CHECK_EQ(motion_active(), MOTION_HEADREST_DOWN);
@@ -565,11 +576,11 @@ TEST(heat_does_not_dismiss_its_own_readout)
     tap(HS_HEAT);
     CHECK(fake_leds & BAR_LAMPS);
 
-    hold(HS_HEAT, BUTTON_HEAT_HOLD_MS - 200);
+    hold(HS_HEAT, BUTTON_ADJUST_HOLD_MS - 200);
     CHECK(fake_leds & BAR_LAMPS);       /* still up, part way into the hold */
 
     run_ms(220);                        /* and it becomes the menu */
-    CHECK(heat_armed());
+    CHECK(adjust_armed());
     release(20);
 
     /* Where MASSAGE, having nothing to do with the bar, takes it down. */
@@ -590,13 +601,13 @@ TEST(the_bar_fills_in_from_the_bottom)
     reset();
     tap(HS_POWER);
 
-    hold(HS_HEAT, BUTTON_HEAT_HOLD_MS + 5);
+    hold(HS_HEAT, BUTTON_ADJUST_HOLD_MS + 5);
     CHECK_EQ(fake_leds & BAR_LAMPS, bar_lamp[0]);
 
     for (int i = 1; i < HEAT_LEVEL_DEFAULT; i++) {
         uint8_t want = 0;
 
-        run_ms(HEAT_BAR_STEP_MS);
+        run_ms(ADJUST_BAR_STEP_MS);
 
         for (int j = 0; j <= i; j++) {
             want |= bar_lamp[j];
@@ -651,7 +662,7 @@ TEST(heat_gestures_are_gated_by_power)
 
     hold_heat();
     CHECK(!heat_is_on());
-    CHECK(!heat_armed());
+    CHECK(!adjust_armed());
 }
 
 /* The level is a duty cycle and nothing else. Level one spends most of the
@@ -686,6 +697,100 @@ TEST(the_level_sets_the_duty_cycle)
 
 #endif /* ENH_HEAT_LEVELS */
 
+#if ENH_MASSAGE_LEVELS
+
+/* --- massage intensity, enhancements-spec.md §2.6 --- */
+
+/* The same gesture as heat, on the massage button, driving the same adjuster.
+ */
+TEST(holding_massage_opens_the_level_buttons)
+{
+    reset();
+    tap(HS_POWER);
+
+    hold_massage();
+    CHECK(pneumatics_massage_on());
+    CHECK(adjust_armed());
+    CHECK_EQ(adjust_owner(), ADJUST_MASSAGE);
+
+    /* The release that ended the hold did not toggle massage back off. */
+    run_ms(50);
+    CHECK(pneumatics_massage_on());
+
+    tap(HS_MASSAGE);                    /* accept */
+    CHECK(!adjust_armed());
+    CHECK(pneumatics_massage_on());     /* an answer, not an off switch */
+}
+
+/* Each of the four buttons picks its own intensity. */
+TEST(the_motion_buttons_pick_intensities)
+{
+    for (int i = 0; i < ADJUST_LEVEL_MAX; i++) {
+        reset();
+        tap(HS_POWER);
+
+        hold_massage();
+        tap(level_button[i]);
+        CHECK_EQ(pneumatics_massage_level(), i + 1);
+    }
+}
+
+/* Only one of them can have the buttons. Opening massage's takes them from
+ * heat's rather than leaving two menus fighting over four lamps.
+ */
+TEST(only_one_thing_owns_the_adjuster)
+{
+    reset();
+    tap(HS_POWER);
+
+    hold_heat();
+    CHECK_EQ(adjust_owner(), ADJUST_HEAT);
+
+    hold_massage();
+    CHECK_EQ(adjust_owner(), ADJUST_MASSAGE);
+    CHECK(adjust_armed());
+
+    /* And a pick now goes to massage, not to heat. */
+    tap(level_button[0]);
+    CHECK_EQ(pneumatics_massage_level(), 1);
+    CHECK_EQ(heat_level(), HEAT_LEVEL_DEFAULT);
+}
+
+/* Intensity survives massage being switched off and on. */
+TEST(the_intensity_is_remembered_between_uses)
+{
+    reset();
+    tap(HS_POWER);
+
+    hold_massage();
+    tap(level_button[1]);               /* level two */
+    tap(HS_MASSAGE);                    /* accept */
+    CHECK_EQ(pneumatics_massage_level(), 2);
+
+    settle_bar();
+    tap(HS_MASSAGE);                    /* off */
+    CHECK(!pneumatics_massage_on());
+
+    tap(HS_MASSAGE);                    /* on again, saying nothing */
+    CHECK(pneumatics_massage_on());
+    CHECK_EQ(pneumatics_massage_level(), 2);
+}
+
+/* Gated by POWER, holds included, same as everything else in here. */
+TEST(massage_gestures_are_gated_by_power)
+{
+    reset();
+    CHECK(!power_is_on());
+
+    hold_massage();
+    CHECK(!pneumatics_massage_on());
+    CHECK(!adjust_armed());
+}
+
+#endif /* ENH_MASSAGE_LEVELS */
+
+#endif /* ADJUST_IN_USE */
+
 int main(void)
 {
     printf("control\n");
@@ -712,6 +817,13 @@ int main(void)
     RUN(the_level_is_remembered_between_uses);
     RUN(heat_gestures_are_gated_by_power);
     RUN(the_level_sets_the_duty_cycle);
+#endif
+#if ENH_MASSAGE_LEVELS
+    RUN(holding_massage_opens_the_level_buttons);
+    RUN(the_motion_buttons_pick_intensities);
+    RUN(only_one_thing_owns_the_adjuster);
+    RUN(the_intensity_is_remembered_between_uses);
+    RUN(massage_gestures_are_gated_by_power);
 #endif
 #if ENH_POWER_DOUBLE_TAP
     RUN(a_double_tap_runs_the_macro_with_nothing_held);

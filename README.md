@@ -4,21 +4,25 @@
 [![codecov](https://codecov.io/gh/tinkerborg/socozi-firmware/branch/master/graph/badge.svg)](https://codecov.io/gh/tinkerborg/socozi-firmware)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-This is a reverse-engineered open firmware for the control board in a 
-SoCozi (Southern Motion) power recliner. 
+This is a reverse-engineered open firmware for the control board in a
+SoCozi (Southern Motion) power recliner.
 
 This is tested in a SoCozi Davidson recliner. This chair's control board
 uses a GD32E23x / Cortex-M23, and is silkscreened `PT613A`.
 
-This has full feature parity with the factory firmware and is running daily on my chair.
+## Enhancements
 
-## Two builds
+This firmare offers several enhancements over the OEM firmware:
 
-The default build is the **enhanced** firmware. Everything it does beyond the
-factory chair is behind the `ENHANCED` compile-time flag, and `make reference`
-builds the same source with that flag off, giving factory-equivalent behaviour.
-That reference image is the fallback: if an enhancement misbehaves in a chair
-you are sitting in, `make flash-reference` gets back to known-good in one step.
+- Adjustable massage intensity
+- Adjustable heat level
+- Improved lumbar adjustment UX
+- Previous settings memory, persisted to nvram so it's preserved across power cycles
+- Double-tap power button turns off massage/lumbar/support and lowers recliner/head rest
+
+Coming next:
+
+- Configurable presets for massage, heat, lumbar, recline, and head rest
 
 Docs:
 

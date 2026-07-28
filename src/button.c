@@ -29,9 +29,15 @@ static uint32_t hold_ms_for(uint8_t button)
 {
 #if ENH_HEAT_LEVELS
     if (button == HS_HEAT) {
-        return BUTTON_HEAT_HOLD_MS;
+        return BUTTON_ADJUST_HOLD_MS;
     }
-#else
+#endif
+#if ENH_MASSAGE_LEVELS
+    if (button == HS_MASSAGE) {
+        return BUTTON_ADJUST_HOLD_MS;
+    }
+#endif
+#if !ADJUST_IN_USE
     (void)button;
 #endif
 

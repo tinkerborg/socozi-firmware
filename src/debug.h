@@ -109,6 +109,12 @@ struct debug_block {
     uint32_t settings_erases;   /* times the store page filled and was reset */
     uint32_t settings_errors;   /* writes or erases the FMC refused */
 #endif
+#if ENH_LUMBAR_HOLD_SET
+    uint32_t lumbar_level;      /* inflate time in 100 ms units, 0 if unset */
+#endif
+#if ENH_MASSAGE_LEVELS
+    uint32_t massage_level;     /* 1..ADJUST_LEVEL_MAX */
+#endif
 };
 
 extern volatile struct debug_block dbg;

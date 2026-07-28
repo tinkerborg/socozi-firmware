@@ -65,10 +65,32 @@
 #endif
 
 /* Remember settings across a reset, in a reserved flash page. See
- * enhancements-spec.md §2.4. Currently just the heat level.
+ * enhancements-spec.md §2.4. Currently the heat and lumbar levels.
  */
 #ifndef ENH_SETTINGS_PERSIST
 #define ENH_SETTINGS_PERSIST ENHANCED
 #endif
+
+/* Hold LUMBAR to inflate to where you want it, then tap to go back there,
+ * instead of the factory's inflate/hold/deflate/off cycle. See
+ * enhancements-spec.md §2.5.
+ */
+#ifndef ENH_LUMBAR_HOLD_SET
+#define ENH_LUMBAR_HOLD_SET ENHANCED
+#endif
+
+/* Four massage intensities, chosen the same way heat levels are: hold MASSAGE
+ * and pick. The pattern is unchanged at every level; what shrinks is how much
+ * of each inflating step the pump runs for. See enhancements-spec.md §2.6.
+ */
+#ifndef ENH_MASSAGE_LEVELS
+#define ENH_MASSAGE_LEVELS ENHANCED
+#endif
+
+/* Whether anything uses adjust.c, which owns the shared bar graph and the
+ * borrowed motion buttons. Both users are optional and either one alone is
+ * enough to need it.
+ */
+#define ADJUST_IN_USE (ENH_HEAT_LEVELS || ENH_MASSAGE_LEVELS)
 
 #endif /* ENHANCEMENTS_H */

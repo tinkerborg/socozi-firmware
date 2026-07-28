@@ -10,36 +10,57 @@
 
 #define SLOT_ADDR(i) (FLASH_STORE_ADDR + (i) * 4u)
 
-/* A record is the payload in the low half and its complement in the high half.
+/* A record is three payload bytes and a check byte.
  *
- * That is the whole validity scheme, and it costs nothing: an erased word is
- * 0xFFFFFFFF, whose halves are 0xFFFF and 0xFFFF, and 0xFFFF is not the
- * complement of 0xFFFF. So erased slots are invalid by construction and the log
- * needs no separate in-use marker, which would itself have to be written.
+ * The check is the complement of their sum, which costs one byte and buys the
+ * thing the log depends on: an erased word must not read as a record. Erased is
+ * 0xFFFFFFFF, whose bytes sum to 0xFD, complement 0x02, which is not the 0xFF
+ * sitting in the check position. So erased slots are invalid by construction
+ * and the log needs no in-use marker, which would itself have to be written.
+ *
+ * It also rejects the older two-byte-and-complement format, so a chair carrying
+ * records from before this grew a third setting reads them as absent and starts
+ * from defaults rather than from garbage.
  */
-#define RECORD(payload) (((uint32_t)(uint16_t)~(payload) << 16) | (uint16_t)(payload))
+#define PAYLOAD_MASK 0x00FFFFFFu
+
+static uint8_t record_check(uint32_t payload)
+{
+    uint8_t sum = (uint8_t)(payload & 0xFF)
+                + (uint8_t)((payload >> 8) & 0xFF)
+                + (uint8_t)((payload >> 16) & 0xFF);
+
+    return (uint8_t)~sum;
+}
+
+static uint32_t make_record(uint32_t payload)
+{
+    payload &= PAYLOAD_MASK;
+
+    return payload | ((uint32_t)record_check(payload) << 24);
+}
 
 static int record_valid(uint32_t word)
 {
-    return (uint16_t)(word >> 16) == (uint16_t)~(uint16_t)word;
+    return (uint8_t)(word >> 24) == record_check(word & PAYLOAD_MASK);
 }
 
-static uint16_t record_payload(uint32_t word)
-{
-    return (uint16_t)word;
-}
-
-/* Payload layout. One byte spoken for, the rest reserved so a second setting
- * can be added without changing the record format.
+/* Payload layout: one byte per setting. A value needing more than a byte would
+ * need the record widened rather than the bytes rebalanced, because the check
+ * byte is what makes an erased slot invalid.
  */
-#define PAYLOAD_HEAT(p)  ((uint8_t)((p) & 0xFF))
-#define PAYLOAD(heat)    ((uint16_t)(heat))
+#define PAYLOAD_HEAT(p)    ((uint8_t)((p) & 0xFF))
+#define PAYLOAD_LUMBAR(p)  ((uint8_t)(((p) >> 8) & 0xFF))
+#define PAYLOAD_MASSAGE(p) ((uint8_t)(((p) >> 16) & 0xFF))
+
+#define PAYLOAD_SET(p, shift, v) \
+    (((p) & ~(0xFFu << (shift))) | ((uint32_t)(uint8_t)(v) << (shift)))
 
 /* Live values, and the ones the store already holds. They differ exactly when
  * there is something to commit.
  */
-static uint16_t live;
-static uint16_t committed;
+static uint32_t live;
+static uint32_t committed;
 
 /* The next slot to append to. Equal to SLOTS when the page is full. */
 static uint16_t next_slot;
@@ -62,7 +83,7 @@ void settings_init(void)
             break;
         }
 
-        live      = record_payload(word);
+        live      = word & PAYLOAD_MASK;
         committed = live;
     }
 
@@ -74,9 +95,29 @@ uint8_t settings_heat_level(void)
     return PAYLOAD_HEAT(live);
 }
 
+uint8_t settings_lumbar_level(void)
+{
+    return PAYLOAD_LUMBAR(live);
+}
+
+uint8_t settings_massage_level(void)
+{
+    return PAYLOAD_MASSAGE(live);
+}
+
 void settings_set_heat_level(uint8_t level)
 {
-    live = PAYLOAD(level);
+    live = PAYLOAD_SET(live, 0, level);
+}
+
+void settings_set_lumbar_level(uint8_t tenths)
+{
+    live = PAYLOAD_SET(live, 8, tenths);
+}
+
+void settings_set_massage_level(uint8_t level)
+{
+    live = PAYLOAD_SET(live, 16, level);
 }
 
 void settings_update(int quiet)
@@ -100,7 +141,7 @@ void settings_update(int quiet)
         dbg.settings_erases++;
     }
 
-    if (!flash_write_word(SLOT_ADDR(next_slot), RECORD(live))) {
+    if (!flash_write_word(SLOT_ADDR(next_slot), make_record(live))) {
         committed = live;
         dbg.settings_errors++;
         return;
@@ -116,8 +157,12 @@ void settings_update(int quiet)
 void settings_init(void) {}
 
 uint8_t settings_heat_level(void) { return 0; }
+uint8_t settings_lumbar_level(void) { return 0; }
+uint8_t settings_massage_level(void) { return 0; }
 
 void settings_set_heat_level(uint8_t level) { (void)level; }
+void settings_set_lumbar_level(uint8_t tenths) { (void)tenths; }
+void settings_set_massage_level(uint8_t level) { (void)level; }
 
 void settings_update(int quiet) { (void)quiet; }
 
