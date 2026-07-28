@@ -6,6 +6,7 @@
 
 #include "harness.h"
 #include "../src/debug.h"
+#include "../src/enhancements.h"
 #include "../src/gpio.h"
 #include "../src/motion.h"
 
@@ -22,6 +23,9 @@ static void reset(void)
     tick_hook = tick;
     dbg.stalls = 0;
     dbg.stops  = 0;
+#if ENH_END_OF_TRAVEL_STOP
+    dbg.arrivals = 0;
+#endif
 }
 
 static int any_recline_pin(void)
@@ -210,6 +214,123 @@ TEST(a_fault_latches_until_release)
     CHECK_EQ(fake_pin[PIN_RECLINE_A], 1);
 }
 
+#if ENH_END_OF_TRAVEL_STOP
+
+/* End of travel, the mirror of stall detection.
+ *
+ * Both stops open a limit switch inside the actuator, so the motor disconnects
+ * itself and current falls to zero. With both axes on one sense channel, zero
+ * means every motor has arrived.
+ *
+ * Zero is also what the channel reads before anything is energised, which is
+ * what MOTION_ARM_MS and MOTION_ARRIVED_MS are defending against.
+ */
+
+/* Wind a flatten forward to the point where zero current would count. */
+static void flatten_until_armed(void)
+{
+    motion_request(MOTION_FLATTEN);
+    current = 100;                                  /* running, per §9 */
+    run_ms(MOTION_SETTLE_MS + MOTION_ARM_MS);
+}
+
+TEST(flatten_stops_at_end_of_travel)
+{
+    reset();
+    flatten_until_armed();
+    CHECK_EQ(motion_active(), MOTION_FLATTEN);
+
+    current = 0;                                    /* limit switches opened */
+    run_ms(MOTION_ARRIVED_MS - 50);
+    CHECK_EQ(motion_active(), MOTION_FLATTEN);      /* still debouncing */
+
+    run_ms(100);
+    CHECK_EQ(motion_active(), MOTION_NONE);
+    CHECK(!any_recline_pin());
+    CHECK_EQ(fake_pin[PIN_HEADREST_EN], 0);
+
+    /* Arriving is the move succeeding, not a safety stop. */
+    CHECK_EQ(dbg.arrivals, 1);
+    CHECK_EQ(dbg.stalls, 0);
+    CHECK_EQ(dbg.stops, 0);
+}
+
+TEST(zero_current_before_arming_does_not_stop)
+{
+    reset();
+    motion_request(MOTION_FLATTEN);
+    current = 0;                            /* nothing is driving yet */
+
+    run_ms(MOTION_SETTLE_MS + MOTION_ARM_MS - 50);
+    CHECK_EQ(motion_active(), MOTION_FLATTEN);
+    CHECK_EQ(dbg.arrivals, 0);
+}
+
+TEST(a_single_dropped_sample_does_not_stop)
+{
+    reset();
+    flatten_until_armed();
+
+    current = 0;
+    run_ms(MOTION_ARRIVED_MS - 100);
+    current = 100;                          /* back to running */
+
+    run_ms(500);
+    CHECK_EQ(motion_active(), MOTION_FLATTEN);
+    CHECK_EQ(dbg.arrivals, 0);
+}
+
+TEST(a_failed_conversion_is_not_an_arrival)
+{
+    reset();
+    flatten_until_armed();
+
+    current = 0xFFFFFFFF;                   /* no reading is not a zero reading */
+    run_ms(MOTION_ARRIVED_MS + 500);
+    CHECK_EQ(motion_active(), MOTION_FLATTEN);
+    CHECK_EQ(dbg.arrivals, 0);
+}
+
+TEST(an_arrival_latches_until_release)
+{
+    reset();
+    flatten_until_armed();
+    current = 0;
+    run_ms(MOTION_ARRIVED_MS + 10);
+    CHECK_EQ(motion_active(), MOTION_NONE);
+
+    /* A held POWER would otherwise re-request immediately, restart the 600 ms
+     * sequence, and chatter the relays against an open limit switch.
+     */
+    motion_request(MOTION_FLATTEN);
+    run_ms(MOTION_SETTLE_MS + MOTION_STAGGER_MS);
+    CHECK_EQ(motion_active(), MOTION_NONE);
+    CHECK(!any_recline_pin());
+
+    motion_request(MOTION_NONE);            /* released, latch clears */
+    motion_request(MOTION_FLATTEN);
+    run_ms(1);
+    CHECK_EQ(motion_active(), MOTION_FLATTEN);
+}
+
+TEST(held_motions_are_not_stopped_by_zero_current)
+{
+    reset();
+    motion_request(MOTION_RECLINE_UP);
+    current = 100;
+    run_ms(MOTION_SETTLE_MS + MOTION_ARM_MS);
+
+    /* Scoped to the flatten macro, the only motion that has to end itself.
+     * The four button-held motions still run until release.
+     */
+    current = 0;
+    run_ms(MOTION_ARRIVED_MS + 500);
+    CHECK_EQ(motion_active(), MOTION_RECLINE_UP);
+    CHECK_EQ(dbg.arrivals, 0);
+}
+
+#endif /* ENH_END_OF_TRAVEL_STOP */
+
 int main(void)
 {
     printf("motion\n");
@@ -225,6 +346,14 @@ int main(void)
     RUN(a_failed_conversion_is_not_a_stall);
     RUN(motion_times_out);
     RUN(a_fault_latches_until_release);
+#if ENH_END_OF_TRAVEL_STOP
+    RUN(flatten_stops_at_end_of_travel);
+    RUN(zero_current_before_arming_does_not_stop);
+    RUN(a_single_dropped_sample_does_not_stop);
+    RUN(a_failed_conversion_is_not_an_arrival);
+    RUN(an_arrival_latches_until_release);
+    RUN(held_motions_are_not_stopped_by_zero_current);
+#endif
 
     printf("%d checks, %d failed\n\n", tests_run, tests_failed);
     return tests_failed ? 1 : 0;

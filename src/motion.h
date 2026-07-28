@@ -52,6 +52,28 @@
 #define MOTION_STALL_ADC     0x155   /* 341 */
 #define MOTION_STALL_MS      4000
 
+/* --- End of travel, ENH_END_OF_TRAVEL_STOP ---
+ *
+ * The mirror of stall detection. Both ends of travel open an internal limit
+ * switch, so the motor disconnects itself and current falls to zero rather
+ * than rising. With both axes on one sense channel, zero means *every* motor
+ * has reached its stop, which is exactly the "arrived" condition.
+ *
+ * Two guards, because zero is also what the channel reads when nothing is
+ * driving:
+ *
+ * MOTION_ARM_MS   from the first contact closing. Covers MOTION_STAGGER_MS
+ *                 before the recline pair completes, plus the inrush spike,
+ *                 measured at a single 20 ms sample.
+ * MOTION_ARRIVED_MS  how long zero must hold. One dropped sample must not stop
+ *                 a motion mid-travel.
+ *
+ * A failed conversion (0xFFFFFFFF) is not zero and resets the timer, so ADC
+ * trouble falls back to MOTION_TIMEOUT_MS rather than stopping early.
+ */
+#define MOTION_ARM_MS        500
+#define MOTION_ARRIVED_MS    300
+
 /* Values match dbg.motion / MOTION_* in debug.h. */
 
 /* Ask for a motion. Safe to call every loop with the same value. Requesting

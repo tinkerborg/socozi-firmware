@@ -6,9 +6,17 @@
  * hundred bytes, so it doesn't matter yet.
  */
 
+/* The last 4 KiB page is the settings store, so FLASH stops short of it and the
+ * linker cannot put anything there. Must agree with FLASH_STORE_ADDR and
+ * FLASH_PAGE_SIZE in src/flash.h.
+ *
+ * `make flash` uses OpenOCD's `write_image erase`, which erases only the
+ * sectors the image covers, so a store above the image survives a reflash.
+ */
 MEMORY
 {
-    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
+    FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 60K
+    STORE (r)   : ORIGIN = 0x0800F000, LENGTH = 4K
     RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 8K
 }
 

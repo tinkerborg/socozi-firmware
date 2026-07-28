@@ -35,6 +35,36 @@
 #define RCU_AHBEN_PFEN  (1u << 22)
 #define RCU_APB2EN_ADCEN (1u << 9)
 
+/* ---- Flash memory controller ----
+ *
+ * The factory firmware touches only FMC_WS here, during clock init, so the rest
+ * of this block is the STM32F0-alike layout rather than anything observed. It
+ * is exercised by flash.c, which verifies every word it writes by reading it
+ * back, so a wrong offset shows up as a failed write and not as a corrupt page.
+ */
+
+#define FMC_BASE        0x40022000u
+#define FMC_WS          REG32(FMC_BASE + 0x00)
+#define FMC_KEY         REG32(FMC_BASE + 0x04)
+#define FMC_STAT        REG32(FMC_BASE + 0x0C)
+#define FMC_CTL         REG32(FMC_BASE + 0x10)
+#define FMC_ADDR        REG32(FMC_BASE + 0x14)
+
+#define FMC_UNLOCK_KEY0 0x45670123u
+#define FMC_UNLOCK_KEY1 0xCDEF89ABu
+
+#define FMC_STAT_BUSY   (1u << 0)
+#define FMC_STAT_PGERR  (1u << 2)   /* programmed a word that was not erased */
+#define FMC_STAT_WPERR  (1u << 4)   /* write protected */
+#define FMC_STAT_ENDF   (1u << 5)
+
+#define FMC_STAT_ERRORS (FMC_STAT_PGERR | FMC_STAT_WPERR)
+
+#define FMC_CTL_PG      (1u << 0)   /* word program */
+#define FMC_CTL_PER     (1u << 1)   /* page erase */
+#define FMC_CTL_START   (1u << 6)
+#define FMC_CTL_LK      (1u << 7)
+
 /* ---- GPIO ---- */
 
 #define GPIOA_BASE      0x48000000u

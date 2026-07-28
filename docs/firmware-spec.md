@@ -31,9 +31,15 @@ Goals, in priority order:
 
 - **SHALL** run on the GD32E23x at its reset default clock (8 MHz IRC), with no
   PLL configuration. All timing derives from a 1 kHz SysTick.
-- One build, `build/socozi.bin`, with `.elf` and `.map` alongside it. There is
-  no separate watchdog-less variant: `make debug` freezes the watchdog while the
-  core is halted, so the shipping image is also the one we develop against.
+- Two builds from one source tree, each with `.elf` and `.map` alongside the
+  `.bin`: `build/socozi.bin`, the default, which adds the behaviour in
+  [enhancements-spec.md](enhancements-spec.md), and
+  `build/socozi-reference.bin` from `make reference`, which is this spec and
+  nothing more. Everything below applies to both unless it says otherwise.
+
+  There is no separate watchdog-less variant: `make debug` freezes the watchdog
+  while the core is halted, so the shipping image is also the one we develop
+  against.
 
 - The build **SHALL** enable the free watchdog, ~2 s timeout, kicked
   once per main-loop pass. Every other safety bound here, motion timeout,
@@ -143,13 +149,33 @@ Exclusion works at two levels, and both **SHALL** be reproduced:
    valves. **[done]**
 
 State is retained across a pause, so a massage pattern resumes where it left off
-rather than restarting. Two requirements follow, both **[done]**:
+rather than restarting. Three requirements follow, all **[done]**:
 
-- Elapsed time during a pause **SHALL** be given back to the pneumatic
-  deadlines (massage step, massage auto-off, lumbar state, vent) when it ends,
-  so the pattern does not jump ahead. The factory gets this free because its
-  whole timebase is gated by the same motion check, so its counters simply
-  stop.
+- **Exhausting is not paused.** A pause exists to keep the pump off the supply
+  while a motor draws from it, and the exhaust drives no pump, so anything that
+  is only venting **SHALL** keep running for the whole motion: both the 120 s
+  shutdown vent and `LUMBAR_DEFLATE`. Confirmed against the factory firmware on
+  the chair, which carries on deflating when a motion button is pressed
+  mid-vent.
+
+  A motion **SHALL NOT** open the exhaust by itself. Only a vent already in
+  progress continues; a motion never starts one.
+
+  Ownership follows the same priority as the unpaused path, massage, then
+  lumbar, then vent, so a stale vent cannot take the valves back from whatever
+  is actually running. An earlier build got this wrong twice: first by closing
+  the exhaust on any motion, which trapped the air on every shutdown macro, and
+  then by leaving a vent flagged after massage took over, so the next motion
+  button reopened the exhaust.
+
+- Elapsed time during a pause **SHALL** be given back to the deadlines that
+  actually stopped (massage step, massage auto-off, lumbar inflate and hold) when
+  it ends, so the pattern does not jump ahead. The vent and lumbar deflate
+  deadlines **SHALL NOT** move, having run throughout; extending them would hold
+  the exhaust open for the length of the motion.
+
+  The factory gets the paused half free, because its whole timebase is gated by
+  the same motion check, so its counters simply stop.
 - The massage engine **SHALL** rewrite the current step's valve bits on every
   pass, not only at a step transition. A pause drives the valves to zero, and
   waiting for the next transition to restore them would leave them shut for up
@@ -573,8 +599,18 @@ sequence. That is presumably so a held button can't fight the automatic move.
 
 Requirements:
 
-- **SHALL** be reproduced: long-press POWER stops all comfort functions, then
-  drives recline and headrest to their down position. **[done]**
+- **SHALL** be reproduced: long-press POWER drives recline and headrest to their
+  down position, and switches every comfort function off **when the macro ends**,
+  not when it starts. **[done]**
+
+  Observed on the chair, and matching `FUN_08001974` above, where
+  `stop_everything()` sits inside the `power_button_released` branch: while
+  POWER is held the chair drives, lumbar stays inflated, heat stays on, and
+  massage keeps its LED although the motion pause stops its pump. Everything
+  goes out together on release, and the vent follows.
+
+  An earlier version of this spec had the order backwards and the firmware
+  followed it, shutting down at the start of the hold.
 - The move **SHALL** be bounded in time. There is no position feedback, so it
   runs until the limit switches open or the bound expires. **[done]**, it uses
   the same 30 s `MOTION_TIMEOUT_MS` ceiling as any other motion.
@@ -590,6 +626,12 @@ As implemented:
   axes: headrest direction down, plus the recline down pair.
 - It continues while POWER stays held and stops on release.
 - Both down LEDs light while it runs.
+- `power_long_press()` starts the motion and does nothing else. The shutdown is
+  `power_macro_finish()`, called on release: comfort functions off, power gate
+  off, and `pneumatics_shutdown()` starts the vent. Splitting the macro in two
+  is what puts the shutdown at the end rather than the beginning.
+- The vent then runs to completion even though the flatten is still stopping,
+  per the exhaust rule in §8.
 
 Difference from the factory: theirs keeps driving briefly after release (that is
 what the `0x29C` timer appears to be for), ours stops immediately. Revisit if
@@ -702,11 +744,13 @@ Targets are listed in [../README.md](../README.md#build-and-flash). The ones
 that matter here:
 
 ```sh
-make            # build/socozi.bin
-make test       # host tests, no hardware needed
-make backup     # timestamped dump into backup/
+make              # build/socozi.bin, the enhanced default
+make reference    # build/socozi-reference.bin, this spec alone
+make test         # host tests for both variants, no hardware needed
+make backup       # timestamped dump into backup/
 make flash
-make restore    # back to the newest backup
+make flash-reference
+make restore      # back to the newest backup
 ```
 
 Flash is unprotected and `../factory-firmware.bin` is a verified dump.
@@ -727,8 +771,20 @@ three cases, the lumbar cycle, both auto-off timers, motion pause and resume,
 relay sequencing and stagger, stall detection against measured inrush and
 running currents, the motion timeout, and fault latching.
 
-`handset.c` is not covered. It touches USART registers directly, so framing and
-checksum would need splitting out from the peripheral access first.
+Also covered, from §8's exhaust rule: a vent surviving a motion without having
+its deadline extended, a motion never starting a vent, massage taking the valves
+from a pending vent, lumbar deflate continuing through a motion, and lumbar
+inflation still pausing for one.
+
+`control.c`, `button.c` and the macros are covered too, driven the way the
+handset drives them: a test sets a button code, lets time pass, and asserts on
+the relay pins, the valve bits and the LED bitmap sent back. `fakes.c` stands in
+for the three `handset.h` entry points they use. That covers the POWER gate, the
+motion map, the handset timeout, LED mirroring, and both ways into the flatten
+macro.
+
+`handset.c` itself is still not covered. It touches USART registers directly, so
+framing and checksum would need splitting out from the peripheral access first.
 
 ## 13. Known deviations from factory behaviour
 

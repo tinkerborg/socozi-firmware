@@ -186,9 +186,34 @@ TEST(massage_stops_after_fifteen_minutes)
     CHECK_EQ(fake_shift, VALVE_VENT);    /* falls into the vent */
 }
 
-/* Three presses: inflate, hold, deflate. The deflate step must open the
- * exhaust *alone*. Adding the bladder bit turns the pump on and inflates,
- * which is exactly the bug this catches.
+/* Get lumbar inflated and holding, whichever way this build does it: a second
+ * press in the reference, a long-enough release with ENH_LUMBAR_HOLD_SET.
+ */
+#if ENH_LUMBAR_HOLD_SET
+/* A release, plus the tick that lets the new state reach the valves. press()
+ * already does this for a press; nothing does it for a release.
+ */
+static void lumbar_release(void)
+{
+    pneumatics_lumbar_release();
+    run_ms(1);
+}
+#endif
+
+static void lumbar_to_hold(void)
+{
+    press(HS_LUMBAR);
+#if ENH_LUMBAR_HOLD_SET
+    run_ms(600);                         /* past LUMBAR_SET_MS */
+    lumbar_release();
+#else
+    press(HS_LUMBAR);
+#endif
+}
+
+/* Inflate, hold, deflate. However it is reached, the deflate step must open the
+ * exhaust *alone*. Adding the bladder bit turns the pump on and inflates, which
+ * is exactly the bug this catches.
  */
 TEST(lumbar_cycles_inflate_hold_deflate)
 {
@@ -200,7 +225,13 @@ TEST(lumbar_cycles_inflate_hold_deflate)
     run_ms(PUMP_DELAY);
     CHECK_EQ(fake_pin[PIN_PUMP], 1);
 
+#if ENH_LUMBAR_HOLD_SET
+    /* Held long enough to be deliberate, so the release stops it here. */
+    run_ms(600);
+    lumbar_release();
+#else
     press(HS_LUMBAR);
+#endif
     CHECK_EQ(fake_shift, 0);             /* closed valve traps the air */
     CHECK_EQ(fake_pin[PIN_PUMP], 0);
     CHECK(pneumatics_lumbar_lit());
@@ -259,6 +290,114 @@ TEST(shutdown_vents_everything)
     CHECK_EQ(fake_shift, 0);
 }
 
+/* Venting versus motion.
+ *
+ * The motion pause is a pump-current budget. The exhaust drives no pump, so
+ * anything that is only exhausting keeps running through a motion, while
+ * anything that inflates stops. Confirmed against the factory firmware on the
+ * chair: it keeps deflating when a motion button is pressed mid-vent.
+ *
+ * The converse matters just as much. A motion must never *start* a vent.
+ */
+
+TEST(a_vent_keeps_running_through_a_motion)
+{
+    reset();
+    press(HS_MASSAGE);
+    run_ms(1000);
+
+    pneumatics_shutdown();
+    run_ms(1);
+    CHECK_EQ(fake_shift, VALVE_VENT);
+
+    motion_request(MOTION_RECLINE_UP);
+    run_ms(5000);
+    CHECK_EQ(fake_shift, VALVE_VENT);       /* still deflating */
+    CHECK_EQ(fake_pin[PIN_PUMP], 0);
+
+    motion_request(MOTION_NONE);
+    run_ms(1);
+    CHECK_EQ(fake_shift, VALVE_VENT);       /* neither cut short nor restarted */
+
+    /* 5002 ms of the vent has elapsed. The motion must not have pushed the
+     * deadline out, or the exhaust stays open for the length of the move.
+     */
+    run_ms(VENT_MS - 5002 - 1);
+    CHECK_EQ(fake_shift, VALVE_VENT);
+    run_ms(2);
+    CHECK_EQ(fake_shift, 0);
+}
+
+TEST(a_motion_does_not_start_a_vent)
+{
+    reset();                                /* nothing open, nothing pending */
+
+    motion_request(MOTION_RECLINE_UP);
+    run_ms(2000);
+    CHECK_EQ(fake_shift, 0);
+
+    motion_request(MOTION_NONE);
+    run_ms(1);
+    CHECK_EQ(fake_shift, 0);
+}
+
+TEST(massage_takes_the_valves_from_a_pending_vent)
+{
+    reset();
+    pneumatics_shutdown();
+    run_ms(1);
+    CHECK_EQ(fake_shift, VALVE_VENT);
+
+    /* Massage takes ownership mid-vent, so the vent is abandoned rather than
+     * left pending. A stale flag here used to reopen the exhaust on the next
+     * motion press.
+     */
+    press(HS_MASSAGE);
+    run_ms(1000);
+
+    motion_request(MOTION_RECLINE_UP);
+    run_ms(2000);
+    CHECK_EQ(fake_shift, 0);
+
+    motion_request(MOTION_NONE);
+    run_ms(1);
+}
+
+TEST(lumbar_deflate_keeps_running_through_a_motion)
+{
+    reset();
+    lumbar_to_hold();
+    press(HS_LUMBAR);                       /* deflate */
+    CHECK_EQ(fake_shift, VALVE_VENT);
+
+    motion_request(MOTION_RECLINE_UP);
+    run_ms(3000);
+    CHECK_EQ(fake_shift, VALVE_VENT);
+    CHECK_EQ(fake_pin[PIN_PUMP], 0);
+
+    motion_request(MOTION_NONE);
+    run_ms(1);
+    CHECK_EQ(fake_shift, VALVE_VENT);
+}
+
+TEST(lumbar_inflation_still_pauses_for_a_motion)
+{
+    reset();
+    press(HS_LUMBAR);                       /* inflate */
+    run_ms(PUMP_DELAY + 10);
+    CHECK_EQ(fake_shift, VALVE_BOTTOM);
+    CHECK_EQ(fake_pin[PIN_PUMP], 1);
+
+    motion_request(MOTION_RECLINE_UP);
+    run_ms(10);
+    CHECK_EQ(fake_shift, 0);                /* inflation is what costs current */
+    CHECK_EQ(fake_pin[PIN_PUMP], 0);
+
+    motion_request(MOTION_NONE);
+    run_ms(10);
+    CHECK_EQ(fake_shift, VALVE_BOTTOM);     /* resumes */
+}
+
 int main(void)
 {
     printf("pneumatics\n");
@@ -273,6 +412,11 @@ int main(void)
     RUN(lumbar_inflation_has_a_ceiling);
     RUN(massage_and_lumbar_are_exclusive);
     RUN(shutdown_vents_everything);
+    RUN(a_vent_keeps_running_through_a_motion);
+    RUN(a_motion_does_not_start_a_vent);
+    RUN(massage_takes_the_valves_from_a_pending_vent);
+    RUN(lumbar_deflate_keeps_running_through_a_motion);
+    RUN(lumbar_inflation_still_pauses_for_a_motion);
 
     printf("%d checks, %d failed\n\n", tests_run, tests_failed);
     return tests_failed ? 1 : 0;
