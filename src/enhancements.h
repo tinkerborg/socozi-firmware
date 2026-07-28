@@ -57,4 +57,18 @@
 #error "ENH_POWER_DOUBLE_TAP requires ENH_END_OF_TRAVEL_STOP"
 #endif
 
+/* Four heat levels, delivered by duty cycling the element. See
+ * enhancements-spec.md §2.3.
+ */
+#ifndef ENH_HEAT_LEVELS
+#define ENH_HEAT_LEVELS ENHANCED
+#endif
+
+/* Remember settings across a reset, in a reserved flash page. See
+ * enhancements-spec.md §2.4. Currently just the heat level.
+ */
+#ifndef ENH_SETTINGS_PERSIST
+#define ENH_SETTINGS_PERSIST ENHANCED
+#endif
+
 #endif /* ENHANCEMENTS_H */

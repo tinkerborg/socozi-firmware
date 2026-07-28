@@ -22,7 +22,33 @@ extern uint8_t  fake_pin[256];
 extern uint32_t fake_shift;         /* last value clocked into the register */
 extern uint32_t fake_shift_writes;  /* how many times, to catch redundant writes */
 
+/* --- fake handset ---
+ *
+ * Lets a test press a button: set fake_button, let time run, read back the LED
+ * bitmap the firmware sent. handset.c itself is not linked, so nothing here
+ * models framing or checksums.
+ */
+extern uint8_t  fake_button;    /* what handset_button() reports */
+extern uint32_t fake_age_ms;    /* what handset_age_ms() reports */
+extern uint8_t  fake_leds;      /* last bitmap passed to handset_set_leds() */
+
 void fakes_reset(void);
+
+/* --- fake flash ---
+ *
+ * One page, behaving the way the real thing does: a write can only clear bits,
+ * and only an erase puts them back. A store that tried to rewrite a record in
+ * place would fail here exactly as it would on the chair.
+ *
+ * fakes_reset() does NOT erase it. Persistence across a reset is the whole
+ * point, so a test that wants a blank part says so with fake_flash_wipe().
+ */
+extern uint32_t fake_flash[];           /* FLASH_PAGE_SIZE / 4 words */
+extern uint32_t fake_flash_writes;
+extern uint32_t fake_flash_erases;
+extern int      fake_flash_fail;        /* refuse every write and erase */
+
+void fake_flash_wipe(void);             /* back to a fresh, erased page */
 
 /* --- fake time --- */
 

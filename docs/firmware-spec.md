@@ -776,8 +776,15 @@ its deadline extended, a motion never starting a vent, massage taking the valves
 from a pending vent, lumbar deflate continuing through a motion, and lumbar
 inflation still pausing for one.
 
-`handset.c` is not covered. It touches USART registers directly, so framing and
-checksum would need splitting out from the peripheral access first.
+`control.c`, `button.c` and the macros are covered too, driven the way the
+handset drives them: a test sets a button code, lets time pass, and asserts on
+the relay pins, the valve bits and the LED bitmap sent back. `fakes.c` stands in
+for the three `handset.h` entry points they use. That covers the POWER gate, the
+motion map, the handset timeout, LED mirroring, and both ways into the flatten
+macro.
+
+`handset.c` itself is still not covered. It touches USART registers directly, so
+framing and checksum would need splitting out from the peripheral access first.
 
 ## 13. Known deviations from factory behaviour
 

@@ -26,17 +26,19 @@ endif
 
 TARGET   = $(BUILD)/socozi$(SUFFIX)
 
-SRCS    = src/main.c src/adc.c src/gpio.c src/handset.c src/heat.c \
-          src/motion.c src/pneumatics.c src/power.c src/timing.c \
-          src/watchdog.c src/startup.c
+SRCS    = src/main.c src/adc.c src/button.c src/control.c src/flash.c \
+          src/gpio.c src/handset.c src/heat.c src/motion.c src/pneumatics.c \
+          src/power.c src/settings.c src/timing.c src/watchdog.c src/startup.c \
+          src/macros/flatten.c
 LDSCRIPT = gd32e230c8.ld
 
 # The link is one compiler invocation, so there is no per-object dependency
 # tracking to lean on. Headers gate real behaviour now, enhancements.h most of
 # all, so a header edit that didn't rebuild would silently flash a stale image.
-HDRS    = $(wildcard src/*.h)
+HDRS    = $(wildcard src/*.h src/macros/*.h)
 
-CFLAGS  = -mcpu=cortex-m23 -mthumb -Os -g3 -std=c11
+# -Isrc so subdirectory modules include "motion.h" rather than "../motion.h".
+CFLAGS  = -mcpu=cortex-m23 -mthumb -Os -g3 -std=c11 -Isrc
 CFLAGS += -Wall -Wextra -ffunction-sections -fdata-sections
 LDFLAGS = -T$(LDSCRIPT) -nostartfiles -Wl,--gc-sections
 
@@ -97,15 +99,21 @@ $(TARGET).bin: $(TARGET).elf
 
 symbols: $(TARGET).elf
 
-# Host tests. pneumatics.c, motion.c and heat.c reach the board only through
-# gpio.h and timing.h, so linking fakes for those two runs the real logic
-# natively. No hardware, no cross compiler.
-TEST_SRCS  = pneumatics motion heat
+# Host tests. pneumatics.c, motion.c, heat.c and settings.c reach the board only
+# through gpio.h, timing.h and flash.h, so linking fakes for those three runs
+# the real logic natively. No hardware, no cross compiler.
+TEST_SRCS  = pneumatics motion heat control settings
 TEST_BINS  = $(TEST_SRCS:%=$(BUILD)/test_%$(SUFFIX))
 TEST_CC    = cc
-TEST_FLAGS = -std=c11 -Wall -Wextra -g -Itests
+TEST_FLAGS = -std=c11 -Wall -Wextra -g -Itests -Isrc
 
-$(BUILD)/test_%$(SUFFIX): tests/test_%.c tests/fakes.c src/pneumatics.c src/motion.c src/heat.c $(HDRS) | $(BUILD)
+# control.c reaches the board only through the same two seams, plus handset.h,
+# which fakes.c now stands in for. That puts button handling and the macros
+# under test without linking any peripheral code.
+TEST_MODULES = src/pneumatics.c src/motion.c src/heat.c src/button.c \
+               src/control.c src/power.c src/settings.c src/macros/flatten.c
+
+$(BUILD)/test_%$(SUFFIX): tests/test_%.c tests/fakes.c $(TEST_MODULES) $(HDRS) | $(BUILD)
 	$(TEST_CC) $(TEST_FLAGS) -DENHANCED=$(ENHANCED) $(filter %.c,$^) -o $@
 
 # Both variants, always. An enhancement that breaks the reference path has
@@ -130,7 +138,7 @@ test-variant: $(TEST_BINS)
 # interchangeable, so the reader has to match the compiler. Override with
 # GCOV=... if the guess is wrong.
 COV_DIR     = $(BUILD)/coverage$(SUFFIX)
-COV_MODULES = src/pneumatics.c src/motion.c src/heat.c
+COV_MODULES = $(TEST_MODULES)
 
 ifeq ($(shell uname -s),Darwin)
 GCOV ?= xcrun llvm-cov gcov

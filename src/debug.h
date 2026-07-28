@@ -101,6 +101,14 @@ struct debug_block {
 #if ENH_POWER_DOUBLE_TAP
     uint32_t auto_moves;    /* double-tap POWER macros started */
 #endif
+#if ENH_HEAT_LEVELS
+    uint32_t heat_level;    /* 0 off, 1..HEAT_LEVEL_MAX */
+#endif
+#if ENH_SETTINGS_PERSIST
+    uint32_t settings_writes;   /* records appended to the store */
+    uint32_t settings_erases;   /* times the store page filled and was reset */
+    uint32_t settings_errors;   /* writes or erases the FMC refused */
+#endif
 };
 
 extern volatile struct debug_block dbg;
