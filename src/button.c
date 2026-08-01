@@ -27,21 +27,30 @@ int button_hold_active(void)
  */
 static uint32_t hold_ms_for(uint8_t button)
 {
+    switch (button) {
 #if ENH_HEAT_LEVELS
-    if (button == HS_HEAT) {
-        return BUTTON_ADJUST_HOLD_MS;
-    }
+    case HS_HEAT:
 #endif
 #if ENH_MASSAGE_LEVELS
-    if (button == HS_MASSAGE) {
-        return BUTTON_ADJUST_HOLD_MS;
-    }
+    case HS_MASSAGE:
 #endif
-#if !ADJUST_IN_USE
-    (void)button;
+#if ENH_PRESET
+    /* Only meaningful while the preset window is open, where a hold clears the
+     * slot. Outside it nothing listens for these, and a motion carries on for
+     * as long as the button is down either way.
+     */
+    case HS_RECLINE_UP:
+    case HS_RECLINE_DOWN:
+    case HS_HEADREST_UP:
+    case HS_HEADREST_DOWN:
+#endif
+#if BUTTONS_BORROWED
+        return BUTTON_SHORT_HOLD_MS;
 #endif
 
-    return BUTTON_HOLD_MS;
+    default:
+        return BUTTON_HOLD_MS;
+    }
 }
 
 struct button_event button_update(uint8_t button)

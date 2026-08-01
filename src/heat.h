@@ -44,8 +44,15 @@
  */
 void heat_arm(void);
 
-/* A level was picked while heat owned the adjuster. */
+/* A level was picked while heat owned the adjuster. Runs at it and remembers
+ * it, because a deliberate choice is what the last-used memory is for.
+ */
 void heat_set_level(uint8_t want);
+
+/* Run at this level without remembering it. For a preset recall, which carries
+ * its own level and must not overwrite the one you last chose by hand.
+ */
+void heat_use_level(uint8_t want);
 
 /* 0 off, 1..HEAT_LEVEL_MAX. */
 int heat_level(void);
@@ -61,10 +68,12 @@ int heat_level(void);
  */
 void heat_press(void);
 
-/* What the HEAT lamp should show while heat is on: blinking while a level is
- * being chosen, then steady.
+/* Switch heat on or off outright, at its remembered level.
+ *
+ * heat_press() is a button handler and toggles; this says what should be true.
+ * A preset recall has a chair it wants to arrive at, not a finger.
  */
-int heat_led(void);
+void heat_set(int on);
 
 /* Call every loop: drives the output, applies the auto-off and the duty cycle,
  * and cuts the element while a motor runs.

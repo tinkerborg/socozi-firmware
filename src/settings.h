@@ -37,6 +37,41 @@ uint8_t settings_heat_level(void);
 uint8_t settings_lumbar_level(void);
 uint8_t settings_massage_level(void);
 
+/* Saved chairs, §2.8. One per motion button.
+ *
+ * A slot carries its own levels rather than borrowing the ones above. Those are
+ * the last-used memory, which a recall reads from but never writes to, and a
+ * manual adjustment writes to but never reaches a slot. Only an explicit preset
+ * write touches a slot.
+ */
+#define SETTINGS_PRESETS 4
+
+struct settings_preset {
+    uint8_t recline;    /* PRESET_STEP_MS units above the down stop */
+    uint8_t headrest;
+    uint8_t flags;      /* PRESET_FLAG_*, which comfort functions were on */
+    uint8_t heat;       /* 1..HEAT_LEVEL_MAX */
+    uint8_t lumbar;     /* inflate time in 100 ms units */
+    uint8_t massage;    /* 1..ADJUST_LEVEL_MAX */
+};
+
+/* A whole slot at a time, because the parts are only meaningful together: half
+ * a preset is not a chair anybody asked for.
+ */
+void settings_get_preset(uint8_t slot, struct settings_preset *out);
+void settings_set_preset(uint8_t slot, const struct settings_preset *p);
+
+/* Back to never-written. Zeroing the bytes is not enough on its own — all
+ * zeros is a legitimate preset — so this also clears the written bit.
+ */
+void settings_clear_preset(uint8_t slot);
+
+/* True once a slot has been written. An unwritten slot is all zeros, which
+ * would otherwise recall as "flat, everything off" and look like a preset
+ * somebody chose.
+ */
+int settings_preset_used(uint8_t slot);
+
 /* Note a new value. Does not touch flash; marks it to be committed. Setting the
  * value that is already committed does nothing at all, so picking a level and
  * changing back writes nothing.

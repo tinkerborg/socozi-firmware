@@ -25,6 +25,24 @@ static int      fault_latched;
 static int      arrived_latched;
 static uint32_t zero_since_ms;  /* when the sense channel last went to zero */
 static int      zero;
+
+/* Which motions can end themselves at a stop.
+ *
+ * Not the headrest. Its motor is small enough that it reads as zero for its
+ * whole travel on a channel scaled for the recline motor, so the detector saw
+ * every headrest move as arriving a second in. Recline and the flatten macro
+ * both register, and the flatten is the one that has to end itself.
+ *
+ * Requiring current to have been seen first was the other way to fix that, and
+ * it broke the flatten: driving down is gravity-assisted and can draw little
+ * enough to read as zero the whole way, so the macro never ended.
+ */
+static int arrival_applies(uint32_t want)
+{
+    return want == MOTION_FLATTEN
+        || want == MOTION_RECLINE_UP
+        || want == MOTION_RECLINE_DOWN;
+}
 #else
 enum { arrived_latched = 0 };
 #endif
@@ -199,6 +217,66 @@ static int arrived(uint32_t current)
 }
 #endif
 
+#if ENH_POSITION_TRACK
+
+/* Milliseconds of upward travel above the down stop. */
+static uint32_t pos_recline;
+static uint32_t pos_headrest;
+static uint32_t track_ms;
+
+uint32_t motion_pos_recline(void)  { return pos_recline; }
+uint32_t motion_pos_headrest(void) { return pos_headrest; }
+
+int motion_at_home(void)
+{
+    return pos_recline <= MOTION_HOME_MS && pos_headrest <= MOTION_HOME_MS;
+}
+
+static void advance(uint32_t *pos, uint32_t travel, int up, uint32_t d)
+{
+    if (up) {
+        *pos = (*pos + d > travel) ? travel : *pos + d;
+    } else {
+        *pos = (d > *pos) ? 0 : *pos - d;
+    }
+}
+
+/* Integrate the time the motor has actually been turning. Called only once the
+ * relays are closed, so the settle time does not count as travel.
+ */
+static void track(void)
+{
+    uint32_t d = ms_ticks - track_ms;
+
+    track_ms = ms_ticks;
+
+    switch (requested) {
+    case MOTION_RECLINE_UP:
+        advance(&pos_recline, MOTION_TRAVEL_RECLINE_MS, 1, d);
+        break;
+    case MOTION_RECLINE_DOWN:
+        advance(&pos_recline, MOTION_TRAVEL_RECLINE_MS, 0, d);
+        break;
+    case MOTION_HEADREST_UP:
+        advance(&pos_headrest, MOTION_TRAVEL_HEADREST_MS, 1, d);
+        break;
+    case MOTION_HEADREST_DOWN:
+        advance(&pos_headrest, MOTION_TRAVEL_HEADREST_MS, 0, d);
+        break;
+    case MOTION_FLATTEN:
+        advance(&pos_recline, MOTION_TRAVEL_RECLINE_MS, 0, d);
+        advance(&pos_headrest, MOTION_TRAVEL_HEADREST_MS, 0, d);
+        break;
+    default:
+        break;
+    }
+
+    dbg.pos_recline  = pos_recline;
+    dbg.pos_headrest = pos_headrest;
+}
+
+#endif /* ENH_POSITION_TRACK */
+
 void motion_update(uint32_t current)
 {
     uint32_t elapsed;
@@ -215,6 +293,12 @@ void motion_update(uint32_t current)
             engage_first(requested);
             running_ms = ms_ticks;
             seq        = SEQ_FIRST;
+#if ENH_POSITION_TRACK
+            /* Travel is counted from here, not from the request: the settle is
+             * relays closing, with nothing turning yet.
+             */
+            track_ms = ms_ticks;
+#endif
         }
         break;
 
@@ -235,6 +319,10 @@ void motion_update(uint32_t current)
 
     dbg.motion_ms = ms_ticks - running_ms;
 
+#if ENH_POSITION_TRACK
+    track();
+#endif
+
     if (stalled(current)) {
         motion_stop();
         dbg.stalls++;
@@ -244,17 +332,47 @@ void motion_update(uint32_t current)
     }
 
 #if ENH_END_OF_TRAVEL_STOP
-    /* Scoped to the flatten macro, which is the only motion that has to end
-     * itself. The four button-held motions still run until release; extending
-     * this to them is docs/firmware-spec.md §9 "Still open".
+    /* Every motion, not just the flatten macro. Holding a button into a stop
+     * used to keep the relays closed against an open limit switch until the
+     * button came up; now it ends the same way an unattended move does.
+     *
+     * It is also the only correction dead reckoning gets. At a stop the axis is
+     * at a known end of its travel, whatever the estimate had accumulated, so
+     * the estimate is replaced rather than adjusted.
      *
      * Not a fault: reaching the stop is the move succeeding, so it does not
      * count as a safety stop.
      */
-    if (requested == MOTION_FLATTEN && arrived(current)) {
+    if (arrival_applies(requested) && arrived(current)) {
         motion_stop();
         dbg.arrivals++;
         arrived_latched = 1;
+
+#if ENH_POSITION_TRACK
+        switch (requested) {
+        case MOTION_RECLINE_UP:
+            pos_recline = MOTION_TRAVEL_RECLINE_MS;
+            break;
+        case MOTION_HEADREST_UP:
+            pos_headrest = MOTION_TRAVEL_HEADREST_MS;
+            break;
+        case MOTION_RECLINE_DOWN:
+            pos_recline = 0;
+            break;
+        case MOTION_HEADREST_DOWN:
+            pos_headrest = 0;
+            break;
+        case MOTION_FLATTEN:
+            pos_recline  = 0;
+            pos_headrest = 0;
+            break;
+        default:
+            break;
+        }
+
+        dbg.pos_recline  = pos_recline;
+        dbg.pos_headrest = pos_headrest;
+#endif
         return;
     }
 #endif

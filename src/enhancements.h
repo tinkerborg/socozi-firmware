@@ -93,4 +93,39 @@
  */
 #define ADJUST_IN_USE (ENH_HEAT_LEVELS || ENH_MASSAGE_LEVELS)
 
+/* Anything that takes a motion button for something other than its motor:
+ * level picks, preset slots, and cancelling a recall. control.c keeps one latch
+ * for all of them, because they all need the same thing — the press must not
+ * reach the motor, and must stay off it until the button comes up.
+ */
+#define BUTTONS_BORROWED (ADJUST_IN_USE || ENH_PRESET)
+
+/* Dead-reckon where the two axes are, by integrating how long each motor ran.
+ * Re-zeroed whenever the chair reaches its down stops, which is the only
+ * feedback this hardware has. See enhancements-spec.md §2.7.
+ */
+#ifndef ENH_POSITION_TRACK
+#define ENH_POSITION_TRACK ENHANCED
+#endif
+
+/* Hold POWER to save the whole chair — both axis positions, heat, lumbar,
+ * massage — and double-tap to go home or come back to it. Replaces the
+ * factory's POWER-hold flatten. See enhancements-spec.md §2.8.
+ */
+#ifndef ENH_PRESET
+#define ENH_PRESET ENHANCED
+#endif
+
+/* A preset is positions, and positions are dead reckoning. */
+#if ENH_PRESET && !ENH_POSITION_TRACK
+#error "ENH_PRESET requires ENH_POSITION_TRACK"
+#endif
+
+/* Recall drives unattended, so it needs the stop that ends a move by itself,
+ * for the same reason the double-tap flatten does.
+ */
+#if ENH_PRESET && !ENH_END_OF_TRAVEL_STOP
+#error "ENH_PRESET requires ENH_END_OF_TRAVEL_STOP"
+#endif
+
 #endif /* ENHANCEMENTS_H */

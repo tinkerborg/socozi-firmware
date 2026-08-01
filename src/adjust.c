@@ -9,7 +9,7 @@
  * getting out of the way, not part of the choice, so the buttons go back to the
  * motors the moment the wait is over.
  */
-enum { BAR_OFF, BAR_IN, BAR_HOLD, BAR_OUT };
+enum { BAR_OFF, BAR_IN, BAR_HOLD, BAR_CONFIRM, BAR_OUT };
 
 static uint8_t  phase;
 static uint8_t  step;
@@ -29,6 +29,16 @@ static int     armed;
 static uint8_t filled(uint8_t n)
 {
     return (uint8_t)((1u << n) - 1u);
+}
+
+uint8_t adjust_fill_in(uint8_t mask, uint8_t step)
+{
+    return (uint8_t)(mask & filled(step));
+}
+
+uint8_t adjust_slide_out(uint8_t mask, uint8_t step)
+{
+    return (uint8_t)((mask << step) & filled(ADJUST_LEVEL_MAX));
 }
 
 static int showing(void)
@@ -91,12 +101,14 @@ void adjust_pick(uint8_t want)
 
     level = want;
 
-    /* Snap to the new level rather than replaying the fill. The animation is an
-     * entrance; once the bar is up, a pick should land under your finger.
+    /* The choice is made, so the window shuts here rather than lingering. The
+     * owner's lamp stops blinking on the same pass, because that is driven by
+     * `armed`, and the bar flashes the level back on its way out.
      */
-    phase     = BAR_HOLD;
-    hold_ms   = ms_ticks;
-    hold_span = ADJUST_REPICK_MS;
+    armed   = 0;
+    phase   = BAR_CONFIRM;
+    step    = 0;
+    step_ms = ms_ticks;
 }
 
 void adjust_accept(void)
@@ -168,18 +180,17 @@ uint8_t adjust_bar_mask(void)
 {
     switch (phase) {
     case BAR_IN:
-        return filled(step);
+        return adjust_fill_in(filled(level), step);
 
     case BAR_HOLD:
         return filled(level);
 
+    case BAR_CONFIRM:
+        /* On for the even halves, dark for the odd ones. */
+        return (step & 1u) ? 0 : filled(level);
+
     case BAR_OUT:
-        /* The whole bar shoved up by `step` lamps, and whatever runs off the
-         * top is simply gone. One expression for the entire slide, and it gives
-         * a single-lamp bar a dot that travels up and leaves, the same gesture
-         * at level one as at level four.
-         */
-        return (uint8_t)((filled(level) << step) & filled(ADJUST_LEVEL_MAX));
+        return adjust_slide_out(filled(level), step);
 
     default:
         return 0;
@@ -209,6 +220,21 @@ void adjust_update(void)
         /* Nothing more pressed, so whatever the bar is showing stands. */
         if ((ms_ticks - hold_ms) >= hold_span) {
             slide_out();
+        }
+        break;
+
+    case BAR_CONFIRM:
+        /* Flash the level back and go. No slide afterwards: the last half of
+         * the flash is already dark, so the bar has left, and adding a slide
+         * on top of it reads as two endings.
+         */
+        if ((ms_ticks - step_ms) >= ADJUST_CONFIRM_MS) {
+            step_ms = ms_ticks;
+
+            if (++step >= ADJUST_CONFIRM_FLASHES * 2) {
+                phase = BAR_OFF;
+                owner = ADJUST_NOBODY;
+            }
         }
         break;
 

@@ -115,6 +115,14 @@ struct debug_block {
 #if ENH_MASSAGE_LEVELS
     uint32_t massage_level;     /* 1..ADJUST_LEVEL_MAX */
 #endif
+#if ENH_POSITION_TRACK
+    uint32_t pos_recline;       /* ms of travel above the down stop */
+    uint32_t pos_headrest;
+#endif
+#if ENH_PRESET
+    uint32_t presets_saved;
+    uint32_t presets_recalled;
+#endif
 };
 
 extern volatile struct debug_block dbg;

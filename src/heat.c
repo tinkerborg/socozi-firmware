@@ -67,24 +67,36 @@ static void switch_on(void)
 
 void heat_arm(void)
 {
-    /* Power budget, same as a press: no heater while a motor is drawing. */
-    if (motion_active() != MOTION_NONE) {
-        return;
+    /* Adjusting the level does not switch heat on, and does not switch it off
+     * either: it changes a setting, and whether the element is running is a
+     * separate question. Nothing starts here, so there is no power budget to
+     * check.
+     */
+    if (!on) {
+        level          = remembered();
+        dbg.heat_level = level;
     }
 
-    switch_on();
     adjust_open(ADJUST_HEAT, level);
 }
 
-void heat_set_level(uint8_t want)
+void heat_use_level(uint8_t want)
 {
     if (want == 0 || want > HEAT_LEVEL_MAX) {
         return;
     }
 
     level = want;
-    settings_set_heat_level(want);
     dbg.heat_level = want;
+}
+
+void heat_set_level(uint8_t want)
+{
+    heat_use_level(want);
+
+    if (want >= 1 && want <= HEAT_LEVEL_MAX) {
+        settings_set_heat_level(want);
+    }
 }
 
 #endif /* ENH_HEAT_LEVELS */
@@ -109,6 +121,30 @@ void heat_off(void)
 #endif
     dbg.heat_on = 0;
     pin_write(PIN_HEATER, 0);
+}
+
+void heat_set(int on_want)
+{
+    if (on_want == (on != 0)) {
+        return;
+    }
+
+    if (!on_want) {
+        heat_off();
+        return;
+    }
+
+    if (motion_active() != MOTION_NONE) {
+        return;                         /* power budget, same as a press */
+    }
+
+#if ENH_HEAT_LEVELS
+    switch_on();
+#else
+    on          = 1;
+    on_since_ms = ms_ticks;
+    dbg.heat_on = 1;
+#endif
 }
 
 void heat_press(void)
@@ -149,25 +185,6 @@ void heat_press(void)
     on_since_ms = ms_ticks;
     dbg.heat_on = 1;
 #endif
-}
-
-int heat_led(void)
-{
-    if (!on) {
-        return 0;
-    }
-
-#if ENH_HEAT_LEVELS
-    /* Blink while the buttons are borrowed, quickly enough to read as "waiting
-     * for you" rather than as a status light. It stops the moment they go back
-     * to the motors, so blinking means "still changeable".
-     */
-    if (adjust_armed() && adjust_owner() == ADJUST_HEAT) {
-        return adjust_blink();
-    }
-#endif
-
-    return 1;
 }
 
 void heat_update(void)

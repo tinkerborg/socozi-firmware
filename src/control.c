@@ -7,6 +7,7 @@
 #include "handset.h"
 #include "heat.h"
 #include "macros/flatten.h"
+#include "macros/preset.h"
 #include "motion.h"
 #include "pneumatics.h"
 #include "power.h"
@@ -28,20 +29,59 @@ static const uint8_t bar_lamp[ADJUST_LEVEL_MAX] = {
     LED_HEADREST_DOWN, LED_HEADREST_UP, LED_RECLINE_DOWN, LED_RECLINE_UP
 };
 
-/* Buttons whose hold opens an adjuster, and which therefore act on release. */
-static int adjust_hold_button(uint8_t button)
-{
+/* What it takes to be a thing with an adjustable level.
+ *
+ * Everything about *choosing* a level is in adjust.c and is shared. This is the
+ * rest: which button opens it, which lamp reports it, and how to hand a level
+ * to whoever the level belongs to. Two entries today, and the routing below
+ * knows only that there is a list.
+ */
+struct adjuster {
+    uint8_t id;                     /* ADJUST_* */
+    uint8_t button;                 /* the hold that opens it */
+    uint8_t lamp;                   /* LED_*, blinks while it is open */
+    void  (*arm)(void);
+    void  (*set_level)(uint8_t);
+    int   (*is_on)(void);
+};
+
+static const struct adjuster adjusters[] = {
 #if ENH_HEAT_LEVELS
-    if (button == HS_HEAT) {
-        return 1;
-    }
+    { ADJUST_HEAT, HS_HEAT, LED_HEAT,
+      heat_arm, heat_set_level, heat_is_on },
 #endif
 #if ENH_MASSAGE_LEVELS
-    if (button == HS_MASSAGE) {
-        return 1;
-    }
+    { ADJUST_MASSAGE, HS_MASSAGE, LED_MASSAGE,
+      pneumatics_massage_arm, pneumatics_massage_set_level,
+      pneumatics_massage_on },
 #endif
-    (void)button;
+};
+
+#define ADJUSTERS ((int)(sizeof(adjusters) / sizeof(adjusters[0])))
+
+/* Whose hold this button is, or nothing. A button that owns an adjuster acts on
+ * release, so that a tap can be told apart from the hold.
+ */
+static const struct adjuster *adjuster_for(uint8_t button)
+{
+    for (int i = 0; i < ADJUSTERS; i++) {
+        if (adjusters[i].button == button) {
+            return &adjusters[i];
+        }
+    }
+
+    return 0;
+}
+
+/* Whoever currently has the bar and the borrowed buttons. */
+static const struct adjuster *adjuster_owner(void)
+{
+    for (int i = 0; i < ADJUSTERS; i++) {
+        if (adjusters[i].id == adjust_owner()) {
+            return &adjusters[i];
+        }
+    }
+
     return 0;
 }
 #endif /* ADJUST_IN_USE */
@@ -69,21 +109,46 @@ static void led_update(void)
     }
 
     if (pneumatics_lumbar_lit())  bits |= LED_LUMBAR;
-    /* Not heat_is_on() or massage_on() alone: a lamp blinks while its own level
-     * is being chosen, which is what says the motion buttons are borrowed.
+
+#if ADJUST_IN_USE
+    /* One rule for every adjustable thing: blinking while its level is being
+     * chosen, steady the rest of the time.
+     *
+     * Blinking outranks whether the thing is running, because a level can be
+     * adjusted while it is off — and then the lamp is the only thing saying the
+     * motion buttons have been borrowed.
      */
-    if (heat_led())               bits |= LED_HEAT;
+    for (int i = 0; i < ADJUSTERS; i++) {
+        const struct adjuster *a = &adjusters[i];
+        int lit = a->is_on();
 
-    if (pneumatics_massage_on()) {
-        int lit = 1;
-
-#if ENH_MASSAGE_LEVELS
-        if (adjust_armed() && adjust_owner() == ADJUST_MASSAGE) {
+        if (adjust_armed() && adjust_owner() == a->id) {
             lit = adjust_blink();
         }
-#endif
-        if (lit)                  bits |= LED_MASSAGE;
+
+        if (lit)                  bits |= a->lamp;
     }
+#else
+    if (heat_is_on())             bits |= LED_HEAT;
+    if (pneumatics_massage_on())  bits |= LED_MASSAGE;
+#endif
+
+#if ENH_PRESET
+    /* The slot that just took a preset, flashing back so you can see which one
+     * it was. Saving moves nothing, so this is the only evidence it happened.
+     */
+    {
+        uint8_t mask = preset_lamp_mask();
+
+        if (mask && motion_active() == MOTION_NONE) {
+            for (int i = 0; i < PRESET_SLOTS; i++) {
+                if (mask & (1u << i)) {
+                    bits |= bar_lamp[i];
+                }
+            }
+        }
+    }
+#endif
 
 #if ADJUST_IN_USE
     /* Whatever is being adjusted, as a bar graph up the four motion lamps, so
@@ -108,17 +173,25 @@ static void led_update(void)
 
     power_led = power_is_on();
 
-    /* A running macro can override the lamp, see flatten_led_power(). */
+    /* A running macro can override the lamp: an unattended move should look
+     * deliberate rather than like a stuck button.
+     */
     if (flatten_led_power() >= 0) {
         power_led = flatten_led_power();
     }
+
+#if ENH_PRESET
+    if (preset_led_power() >= 0) {
+        power_led = preset_led_power();
+    }
+#endif
 
     if (power_led)                bits |= LED_POWER;
 
     handset_set_leds(bits);
 }
 
-#if ADJUST_IN_USE
+#if BUTTONS_BORROWED
 
 /* A button whose press was taken for something other than its own job, and
  * which must stay taken until it is let go. Without the latch the press picks a
@@ -131,6 +204,10 @@ static void consume_motion(uint8_t button)
 {
     consumed = button;
 }
+
+#endif
+
+#if ADJUST_IN_USE
 
 /* The four motion buttons in bar order, bottom lamp first, so pressing the one
  * next to a bar segment asks for that many segments.
@@ -151,38 +228,14 @@ static int level_button(uint8_t button)
  */
 static void deliver_level(uint8_t want)
 {
-    switch (adjust_owner()) {
-#if ENH_HEAT_LEVELS
-    case ADJUST_HEAT:
-        heat_set_level(want);
-        break;
-#endif
-#if ENH_MASSAGE_LEVELS
-    case ADJUST_MASSAGE:
-        pneumatics_massage_set_level(want);
-        break;
-#endif
-    default:
+    const struct adjuster *a = adjuster_owner();
+
+    if (!a) {
         return;
     }
 
+    a->set_level(want);
     adjust_pick(want);
-}
-
-/* The button that owns the adjuster, so a press on it means "yes, that one"
- * rather than "take the bar down".
- */
-static uint8_t adjust_owner_button(void)
-{
-    switch (adjust_owner()) {
-#if ENH_HEAT_LEVELS
-    case ADJUST_HEAT:    return HS_HEAT;
-#endif
-#if ENH_MASSAGE_LEVELS
-    case ADJUST_MASSAGE: return HS_MASSAGE;
-#endif
-    default:             return HS_NONE;
-    }
 }
 
 #endif /* ADJUST_IN_USE */
@@ -229,6 +282,31 @@ static void route_event(struct button_event ev)
 {
     switch (ev.kind) {
     case BTN_PRESS:
+#if ENH_PRESET
+        /* Any button stops a recall, and stopping it is all that press does.
+         * Reaching for a control to halt the chair should not also switch that
+         * control on, or drive the motor the button belongs to.
+         *
+         * preset_update() sees the same press and does the cancelling; this is
+         * only here to swallow the press before anything else acts on it.
+         */
+        if (preset_moving()) {
+            consume_motion(ev.button);
+            dbg.presses++;
+            break;
+        }
+
+        /* A POWER hold turns the four motion buttons into the four preset
+         * slots for a few seconds. The press only claims the button; what it
+         * means is decided on release, because a tap saves and a hold clears.
+         * consume_motion() keeps it off the motor until it comes up.
+         */
+        if (preset_armed() && level_button(ev.button) > 0) {
+            consume_motion(ev.button);
+            dbg.presses++;
+            break;
+        }
+#endif
 #if ADJUST_IN_USE
         /* While the buttons are borrowed the four motion buttons are level
          * buttons. The press is consumed here: it must not reach the motors,
@@ -250,16 +328,21 @@ static void route_event(struct button_event ev)
          * though: that press may be the start of a hold, and taking the bar
          * down under it would make asking to adjust look like a mis-press.
          */
-        if (ev.button == adjust_owner_button()) {
-            adjust_defer(BUTTON_ADJUST_HOLD_MS);
-        } else {
-            adjust_dismiss();
+        {
+            const struct adjuster *a = adjuster_owner();
+
+            if (a && ev.button == a->button) {
+                adjust_defer(BUTTON_SHORT_HOLD_MS);
+            } else {
+                adjust_dismiss();
+            }
         }
 
-        /* HEAT and MASSAGE act on release, so a tap can be told apart from the
-         * hold that opens the level buttons. POWER already works this way.
+        /* A button that owns an adjuster acts on release, so a tap can be told
+         * apart from the hold that opens the level buttons. POWER already works
+         * this way.
          */
-        if (adjust_hold_button(ev.button)) {
+        if (adjuster_for(ev.button)) {
             break;
         }
 #endif
@@ -271,6 +354,46 @@ static void route_event(struct button_event ev)
 
     case BTN_TAP:
     case BTN_DOUBLE_TAP:
+#if ENH_PRESET
+        /* POWER opened the store window, so POWER backs out of it — and does
+         * not also toggle the gate on the way. On the release, like every other
+         * POWER gesture, so a hold can still re-arm.
+         */
+        if (ev.button == HS_POWER && preset_armed()) {
+            preset_cancel();
+            break;
+        }
+
+        /* Released before the hold threshold, so this was a tap: save. The
+         * matching hold clears instead, in BTN_HOLD below.
+         */
+        if (preset_armed()) {
+            int which = level_button(ev.button);
+
+            if (which > 0) {
+                preset_save((uint8_t)(which - 1));
+                break;
+            }
+        }
+
+        /* Double tap on a motion button goes to that slot. A single tap and a
+         * hold both still mean the motor, so nothing is taken away: at a tap's
+         * timescale the settle has not finished and nothing has moved anyway.
+         *
+         * Not behind the POWER gate. Recalling a preset is how you start using
+         * the chair, so requiring the chair to already be on would be backwards
+         * — the recall switches it on itself.
+         */
+        if (ev.kind == BTN_DOUBLE_TAP) {
+            int which = level_button(ev.button);
+
+            if (which > 0) {
+                dbg.presses++;
+                preset_recall((uint8_t)(which - 1));
+                break;
+            }
+        }
+#endif
 #if ENH_LUMBAR_HOLD_SET
         /* The press started inflating; the release says what it meant. Also
          * reached via BTN_HOLD_RELEASE below, since a long enough hold arrives
@@ -286,7 +409,7 @@ static void route_event(struct button_event ev)
          * else. Both taps of a double tap toggle, which is what two presses
          * have always done.
          */
-        if (adjust_hold_button(ev.button)) {
+        if (adjuster_for(ev.button)) {
             dbg.presses++;
             comfort_button(ev.button);
             break;
@@ -311,32 +434,53 @@ static void route_event(struct button_event ev)
         break;
 
     case BTN_HOLD:
-        if (ev.button == HS_POWER) {
-            dbg.presses++;
-            flatten_hold_start();
-        }
-        /* A held HEAT or MASSAGE asks to choose a level: on if it was off,
-         * straight to the choice if it was already on. Behind the same POWER
-         * gate a press is.
+#if ENH_PRESET
+        /* Held rather than tapped, because clearing throws something away and
+         * a tap already means save.
          */
-#if ENH_HEAT_LEVELS
-        if (ev.button == HS_HEAT && power_is_on()) {
-            dbg.presses++;
-            heat_arm();
+        if (preset_armed()) {
+            int which = level_button(ev.button);
+
+            if (which > 0) {
+                preset_clear((uint8_t)(which - 1));
+                break;
+            }
         }
 #endif
-#if ENH_MASSAGE_LEVELS
-        if (ev.button == HS_MASSAGE && power_is_on()) {
+        if (ev.button == HS_POWER) {
             dbg.presses++;
-            pneumatics_massage_arm();
+#if ENH_PRESET
+            /* Replaces the factory's hold-to-flatten. Nothing moves; the
+             * motion buttons become preset slots until the window closes, and
+             * the release below has nothing to do.
+             */
+            preset_arm();
+#else
+            flatten_hold_start();
+#endif
+        }
+#if ADJUST_IN_USE
+        /* A held HEAT or MASSAGE asks to choose a level. It changes only the
+         * level: whether the thing is running is left exactly as it was.
+         * Behind the same POWER gate a press is.
+         */
+        {
+            const struct adjuster *a = adjuster_for(ev.button);
+
+            if (a && power_is_on()) {
+                dbg.presses++;
+                a->arm();
+            }
         }
 #endif
         break;
 
     case BTN_HOLD_RELEASE:
+#if !ENH_PRESET
         if (ev.button == HS_POWER) {
             flatten_hold_end();
         }
+#endif
 #if ENH_LUMBAR_HOLD_SET
         if (ev.button == HS_LUMBAR && power_is_on()) {
             pneumatics_lumbar_release();
@@ -392,9 +536,9 @@ void control_update(void)
 
     want = motion_for(button);
 
-#if ADJUST_IN_USE
-    /* A button that picked a level stays picked until it comes up, or the motor
-     * would start the instant the level landed.
+#if BUTTONS_BORROWED
+    /* A button taken for something else stays taken until it comes up, or the
+     * motor would start the instant its other job finished.
      */
     if (consumed != HS_NONE) {
         if (button == consumed) {
@@ -405,13 +549,20 @@ void control_update(void)
     }
 #endif
 
-    /* A macro outranks the button map: it is what keeps the flatten alive while
-     * POWER is held, and what renews it when nothing is.
+    /* A macro outranks the button map: it is what keeps an unattended move
+     * alive when nothing is holding a button.
      */
     macro = flatten_update(button);
     if (macro != MOTION_NONE) {
         want = macro;
     }
+
+#if ENH_PRESET
+    macro = preset_update(button);
+    if (macro != MOTION_NONE) {
+        want = macro;
+    }
+#endif
 
     motion_request(want);
     motion_update(dbg.adc);

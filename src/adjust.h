@@ -55,8 +55,20 @@ enum {
  * how long the bar stays up after a plain tap to tell you what you got.
  */
 #define ADJUST_ARM_MS     8000u
-#define ADJUST_REPICK_MS  2000u
 #define ADJUST_READOUT_MS 2000u
+
+/* "That landed", as a flash. One definition, used by every gesture that
+ * records something and moves nothing: picking a level here, and saving a
+ * preset in macros/preset.c. They should not be distinguishable, because they
+ * mean the same thing.
+ *
+ * A pick ends the window there and then and flashes the level back, accepting
+ * nothing in between: leaving it open to be corrected meant sitting through a
+ * lit bar that was still taking input, and the wait read as the chair not
+ * having understood.
+ */
+#define ADJUST_CONFIRM_FLASHES 3
+#define ADJUST_CONFIRM_MS      250u
 
 /* How fast the owner's own lamp blinks to say the buttons are borrowed. */
 #define ADJUST_BLINK_MS 250u
@@ -81,9 +93,9 @@ void adjust_show(uint8_t owner, uint8_t level);
  */
 void adjust_open(uint8_t owner, uint8_t level);
 
-/* A level button was pressed. Shows it and holds the buttons for another
- * ADJUST_REPICK_MS. The caller passes it on to whatever the level means; this
- * only knows how many lamps to light.
+/* A level button was pressed. Takes the level, ends the window immediately, and
+ * flashes the bar back as confirmation. The caller passes the level on to
+ * whatever it means; this only knows how many lamps to light.
  */
 void adjust_pick(uint8_t level);
 
@@ -136,5 +148,19 @@ int adjust_blink(void);
  * is up.
  */
 void adjust_update(void);
+
+/* The two halves of the lamp animation, as rules rather than as an animation.
+ *
+ * Anything that puts a mask up on the four motion lamps arrives and leaves the
+ * same way, so these are shared: macros/preset.c uses them for the slot display
+ * exactly as the bar does for a level.
+ *
+ * In: only the bottom `step` lamps have appeared yet.
+ * Out: the whole thing shoved up by `step`, and whatever runs off the top is
+ * gone — which gives a single lamp a dot that travels up and leaves, the same
+ * gesture as a full row emptying.
+ */
+uint8_t adjust_fill_in(uint8_t mask, uint8_t step);
+uint8_t adjust_slide_out(uint8_t mask, uint8_t step);
 
 #endif /* ADJUST_H */

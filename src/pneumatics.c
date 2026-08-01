@@ -222,6 +222,15 @@ static int lumbar_choosing;
  */
 static uint32_t lumbar_base_ms;
 
+/* What is actually in the cell, which is not the same as what is remembered.
+ *
+ * A recall inflates to the preset's level, and the first use of an unset chair
+ * inflates to the default — neither should become the remembered level, or the
+ * default would be written once and stop being a default. Only holding the
+ * button to a firmness you chose does that.
+ */
+static uint32_t lumbar_level_ms;
+
 #endif
 
 static int      massage_on;
@@ -367,10 +376,15 @@ uint8_t pneumatics_lumbar_level(void)
     return settings_lumbar_level();
 }
 
-/* Stop here, and remember here. Rounded to the stored resolution so that what
- * is recalled is exactly what is recorded, rather than a hair under it.
+/* Stop here. Rounded to the stored resolution so that what is recalled is
+ * exactly what is recorded, rather than a hair under it.
+ *
+ * `remember` is the difference between a firmness you chose and one you were
+ * given. Holding the button is a choice; arriving at a preset's level or the
+ * first-use default is not, and writing those would overwrite what you last
+ * picked by hand.
  */
-static void lumbar_keep(uint32_t elapsed_ms)
+static void lumbar_stop_at(uint32_t elapsed_ms, int remember)
 {
     uint32_t tenths;
 
@@ -383,10 +397,19 @@ static void lumbar_keep(uint32_t elapsed_ms)
         tenths = 0xFF;
     }
 
-    settings_set_lumbar_level((uint8_t)tenths);
+    lumbar_level_ms  = tenths * LUMBAR_TENTH_MS;
     dbg.lumbar_level = tenths;
 
+    if (remember) {
+        settings_set_lumbar_level((uint8_t)tenths);
+    }
+
     set_lumbar(LUMBAR_HOLD);
+}
+
+static void lumbar_keep(uint32_t elapsed_ms)
+{
+    lumbar_stop_at(elapsed_ms, 1);
 }
 
 /* How much air is in the cell right now, as an inflate duration. */
@@ -397,7 +420,7 @@ static uint32_t lumbar_banked(void)
         return lumbar_base_ms + (ms_ticks - lumbar_state_ms);
 
     case LUMBAR_HOLD:
-        return (uint32_t)settings_lumbar_level() * LUMBAR_TENTH_MS;
+        return lumbar_level_ms;
 
     default:
         return 0;
@@ -484,10 +507,11 @@ static void lumbar_tick(void)
                 lumbar_keep(LUMBAR_INFLATE_MAX_MS);
             }
         } else if ((ms_ticks - lumbar_state_ms) >= lumbar_target_ms) {
-            /* Store what a tap settled on, so the level always matches what is
-             * actually in the cell, including the first-use default.
+            /* Arrived at a level somebody asked for rather than chose, so it
+             * does not become the remembered one. That is what keeps the
+             * first-use default a default instead of writing it once.
              */
-            lumbar_keep(lumbar_target_ms);
+            lumbar_stop_at(lumbar_base_ms + lumbar_target_ms, 0);
         }
 #else
         if ((ms_ticks - lumbar_state_ms) >= LUMBAR_INFLATE_MAX_MS) {
@@ -555,26 +579,38 @@ static void massage_start(void)
 
 void pneumatics_massage_arm(void)
 {
-    /* Same power budget as a press: nothing that runs the pump starts while a
-     * motor is drawing.
+    /* Adjusting the intensity does not start the massage. Unlike heat, where a
+     * level only means anything while it is running, an intensity is a setting
+     * you might want to change before switching anything on — and a hold that
+     * started the pump would make that impossible.
+     *
+     * Nothing starts here, so there is no power budget to check.
      */
-    if (motion_active() != MOTION_NONE) {
-        return;
+    if (!massage_on) {
+        massage_level     = remembered_intensity();
+        dbg.massage_level = massage_level;
     }
 
-    massage_start();
     adjust_open(ADJUST_MASSAGE, massage_level);
 }
 
-void pneumatics_massage_set_level(uint8_t want)
+void pneumatics_massage_use_level(uint8_t want)
 {
     if (want == 0 || want > ADJUST_LEVEL_MAX) {
         return;
     }
 
-    massage_level = want;
-    settings_set_massage_level(want);
+    massage_level     = want;
     dbg.massage_level = want;
+}
+
+void pneumatics_massage_set_level(uint8_t want)
+{
+    pneumatics_massage_use_level(want);
+
+    if (want >= 1 && want <= ADJUST_LEVEL_MAX) {
+        settings_set_massage_level(want);
+    }
 }
 
 #endif /* ENH_MASSAGE_LEVELS */
@@ -658,6 +694,91 @@ void pneumatics_button(uint8_t button)
     }
 }
 
+/* Was this deadline already running when the pause began?
+ *
+ * Signed difference, so it stays right across the millisecond counter's wrap.
+ * A zero stamp means "never started", which the massage engine uses.
+ */
+static int started_before_pause(uint32_t stamp)
+{
+    return stamp != 0 && (int32_t)(stamp - pause_start_ms) <= 0;
+}
+
+void pneumatics_massage_set(int on)
+{
+    if (on == (massage_on != 0)) {
+        return;
+    }
+
+    if (!on) {
+        massage_off();
+        start_vent();
+        return;
+    }
+
+    if (motion_active() != MOTION_NONE) {
+        return;                         /* power budget, same as a press */
+    }
+
+#if ENH_MASSAGE_LEVELS
+    massage_start();
+#else
+    massage_on       = 1;
+    dbg.massage_on   = 1;
+    venting          = 0;
+    lumbar_state     = LUMBAR_OFF;
+    dbg.lumbar_state = lumbar_state;
+    massage_step     = 0;
+    massage_step_ms  = 0;
+    massage_start_ms = ms_ticks;
+#endif
+}
+
+uint8_t pneumatics_lumbar_current(void)
+{
+#if ENH_LUMBAR_HOLD_SET
+    return (uint8_t)(lumbar_level_ms / LUMBAR_TENTH_MS);
+#else
+    return 0;
+#endif
+}
+
+void pneumatics_lumbar_set(int on, uint8_t tenths)
+{
+    if (on == (lumbar_state == LUMBAR_INFLATE || lumbar_state == LUMBAR_HOLD)) {
+        return;
+    }
+
+    if (!on) {
+        set_lumbar(LUMBAR_DEFLATE);
+        return;
+    }
+
+    if (motion_active() != MOTION_NONE) {
+        return;
+    }
+
+#if ENH_LUMBAR_HOLD_SET
+    {
+        /* Asked for outright, or the remembered one, or the first-use default,
+         * in that order. Straight to a target with no press to interpret, and
+         * the cell is empty so what is already in it is nothing.
+         */
+        uint8_t want = tenths ? tenths : settings_lumbar_level();
+
+        lumbar_base_ms   = 0;
+        lumbar_choosing  = 0;
+        lumbar_target_ms = want ? (uint32_t)want * LUMBAR_TENTH_MS
+                                : LUMBAR_DEFAULT_MS;
+    }
+#else
+    (void)tenths;
+#endif
+
+    massage_off();
+    set_lumbar(LUMBAR_INFLATE);
+}
+
 void pneumatics_update(void)
 {
     /* The factory firmware refuses to run massage or heat while a motor is
@@ -698,14 +819,23 @@ void pneumatics_update(void)
         uint32_t held = ms_ticks - pause_start_ms;
 
         paused = 0;
-        if (massage_step_ms)  massage_step_ms  += held;
-        if (massage_start_ms) massage_start_ms += held;
 
-        /* Only deadlines that actually stopped get pushed forward. A vent and a
-         * lumbar deflate ran right through the pause, so moving theirs would
-         * hold the exhaust open for the length of the motion.
+        /* Only deadlines that actually stopped get pushed forward.
+         *
+         * "Actually stopped" means two things. A vent and a lumbar deflate ran
+         * right through the pause, so moving theirs would hold the exhaust open
+         * for the length of the motion. And anything *started* during the pause
+         * never waited at all: a preset recall sets lumbar going in the same
+         * pass that ends its own motion, so the unwind lands the pass after,
+         * and crediting it the whole move would push its deadline into the
+         * future. The subtraction then underflows and it jumps straight to
+         * hold, lit but empty.
          */
-        if (lumbar_state != LUMBAR_DEFLATE) {
+        if (started_before_pause(massage_step_ms))  massage_step_ms  += held;
+        if (started_before_pause(massage_start_ms)) massage_start_ms += held;
+
+        if (lumbar_state != LUMBAR_DEFLATE
+            && started_before_pause(lumbar_state_ms)) {
             lumbar_state_ms += held;
         }
     }
