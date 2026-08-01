@@ -19,10 +19,61 @@ This firmare offers several enhancements over the OEM firmware:
 - Improved lumbar adjustment UX
 - Previous settings memory, persisted to nvram so it's preserved across power cycles
 - Double-tap power button turns off massage/lumbar/support and lowers recliner/head rest
-
-Coming next:
-
 - Configurable presets for massage, heat, lumbar, recline, and head rest
+
+## Usage
+
+### Power
+
+As in the stock firmware, the power button must be lit to use the massage,
+heat, and lumbar functions.
+
+Pressing the power button twice quickly will turn all functions off and fully
+lower the recliner and headrest. The power button does not need to be held
+to do this, as it does on the stock firmware.
+
+### Massage
+
+With the power on, press the massage button to turn the massage feature on and off.
+When the massage begins, the four recline and headrest buttons temporarily become
+a bar graph displaying massage intensity.
+
+To adjust massage intensity, hold the massage button until it starts blinking.
+The lower four buttons temporarily become a bar graph again. Pressing any of
+these buttons will set the intensity. There are four levels, the bottom-most
+button (headrest down) being the lowest.
+
+The massage intensity may be adjusted with the massage function on or off. It
+will be persisted to NVRAM automatically and recalled when massage is activated.
+
+### Heat
+
+See the massage instructions above. The heat function works exactly the same way.
+
+### Lumbar
+
+The lumbar function differs from the stock firmware.
+
+Press the lumbar button to turn lumbar support on and off. Hold the lumbar button to
+increase lumbar support, and release it when the desired support level is reached.
+Holding the button when lumbar is off will reset the level. Holding while lumbar is on
+will increase support from the current level.
+
+The lumbar setting will be remembered automatically, and recalled the next time lumbar
+support is enabled.
+
+### Presets
+
+There are four preset slots, which store and recall a snapshot of all current settings
+for massage, heat, lumbar, recliner position, and headrest position.
+
+To store a preset, hold the power button until it starts blinking. In this mode, the
+four recliner and headrest buttons represent the four preset slots. The buttons will
+light solidly when a preset is stored in the slot, and blink when no preset is stored.
+
+To recall a preset, double-tap its corresponding button at any time (except when the
+buttons are in another mode such as intensity selection). Power will be turned on
+if the preset uses any function that requires it.
 
 ## Dependencies
 
