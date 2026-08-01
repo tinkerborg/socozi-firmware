@@ -181,6 +181,11 @@ TEST(motion_times_out)
 {
     reset();
     motion_request(MOTION_RECLINE_UP);
+
+    /* Current has to be flowing, or the end-of-travel stop gets there first:
+     * zero means the motor has disconnected itself at a limit switch.
+     */
+    current = 100;
     run_ms(MOTION_SETTLE_MS + MOTION_TIMEOUT_MS + 100);
 
     CHECK_EQ(motion_active(), MOTION_NONE);
@@ -313,20 +318,23 @@ TEST(an_arrival_latches_until_release)
     CHECK_EQ(motion_active(), MOTION_FLATTEN);
 }
 
-TEST(held_motions_are_not_stopped_by_zero_current)
+TEST(held_motions_stop_at_the_end_of_travel_too)
 {
     reset();
     motion_request(MOTION_RECLINE_UP);
     current = 100;
     run_ms(MOTION_SETTLE_MS + MOTION_ARM_MS);
 
-    /* Scoped to the flatten macro, the only motion that has to end itself.
-     * The four button-held motions still run until release.
+    /* Every motion ends itself at a stop now, not just the flatten macro.
+     * Holding a button into the end of travel used to keep the relays closed
+     * against an open limit switch until the button came up.
      */
     current = 0;
     run_ms(MOTION_ARRIVED_MS + 500);
-    CHECK_EQ(motion_active(), MOTION_RECLINE_UP);
-    CHECK_EQ(dbg.arrivals, 0);
+    CHECK_EQ(motion_active(), MOTION_NONE);
+    CHECK(!any_recline_pin());
+    CHECK_EQ(dbg.arrivals, 1);
+    CHECK_EQ(dbg.stops, 0);             /* arriving is not a safety stop */
 }
 
 #endif /* ENH_END_OF_TRAVEL_STOP */
@@ -352,7 +360,7 @@ int main(void)
     RUN(a_single_dropped_sample_does_not_stop);
     RUN(a_failed_conversion_is_not_an_arrival);
     RUN(an_arrival_latches_until_release);
-    RUN(held_motions_are_not_stopped_by_zero_current);
+    RUN(held_motions_stop_at_the_end_of_travel_too);
 #endif
 
     printf("%d checks, %d failed\n\n", tests_run, tests_failed);

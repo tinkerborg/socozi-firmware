@@ -29,7 +29,8 @@ TARGET   = $(BUILD)/socozi$(SUFFIX)
 SRCS    = src/main.c src/adc.c src/adjust.c src/button.c src/control.c \
           src/flash.c src/gpio.c src/handset.c src/heat.c src/motion.c \
           src/pneumatics.c src/power.c src/settings.c src/timing.c \
-          src/watchdog.c src/startup.c src/macros/flatten.c
+          src/watchdog.c src/startup.c src/macros/flatten.c \
+          src/macros/preset.c
 LDSCRIPT = gd32e230c8.ld
 
 # The link is one compiler invocation, so there is no per-object dependency
@@ -112,7 +113,7 @@ TEST_FLAGS = -std=c11 -Wall -Wextra -g -Itests -Isrc
 # under test without linking any peripheral code.
 TEST_MODULES = src/pneumatics.c src/motion.c src/heat.c src/button.c \
                src/control.c src/power.c src/settings.c src/adjust.c \
-               src/macros/flatten.c
+               src/macros/flatten.c src/macros/preset.c
 
 $(BUILD)/test_%$(SUFFIX): tests/test_%.c tests/fakes.c $(TEST_MODULES) $(HDRS) | $(BUILD)
 	$(TEST_CC) $(TEST_FLAGS) -DENHANCED=$(ENHANCED) $(filter %.c,$^) -o $@

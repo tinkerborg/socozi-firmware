@@ -40,6 +40,33 @@ void pneumatics_lumbar_release(void);
 /* Inflate time in 100 ms units, 0 when nothing is stored. */
 uint8_t pneumatics_lumbar_level(void);
 
+/* --- state, rather than gestures ---
+ *
+ * The calls above are button handlers: they toggle, they cycle, they depend on
+ * what the last press did. A preset recall does not have a finger, it has a
+ * chair it wants to arrive at, so it needs to say what should be true rather
+ * than mime the press that would have made it true.
+ *
+ * The button handlers are the thin layer; these are what they act on.
+ */
+
+/* Inflate and hold. `tenths` is the firmness to go to in 100 ms units, or 0 to
+ * use the remembered one. Idempotent: asking while it is already up does
+ * nothing, since air only leaves through the exhaust.
+ *
+ * Arriving this way does not become the remembered firmness. A preset carries
+ * its own, and must not overwrite what you last chose by hand.
+ */
+void pneumatics_lumbar_set(int on, uint8_t tenths);
+
+/* What is in the cell right now in 100 ms units, which is not the same as what
+ * is remembered.
+ */
+uint8_t pneumatics_lumbar_current(void);
+
+/* Run or stop the massage pattern, at its remembered intensity. */
+void pneumatics_massage_set(int on);
+
 #endif
 
 #if ENH_MASSAGE_LEVELS
@@ -49,8 +76,13 @@ uint8_t pneumatics_lumbar_level(void);
  */
 void pneumatics_massage_arm(void);
 
-/* An intensity was picked while massage owned the adjuster. */
+/* An intensity was picked while massage owned the adjuster. Runs at it and
+ * remembers it, because a deliberate choice is what the memory is for.
+ */
 void pneumatics_massage_set_level(uint8_t want);
+
+/* Run at this intensity without remembering it, for a preset recall. */
+void pneumatics_massage_use_level(uint8_t want);
 
 /* 1..ADJUST_LEVEL_MAX. Never 0: intensity is a property of the pattern, not a
  * thing that is switched off with it, so it reads the same whether massage is

@@ -290,33 +290,68 @@ TEST(switching_off_closes_the_adjuster)
     CHECK_EQ(adjust_bar_mask(), 0);
 }
 
-/* The lamp blinks while the buttons are borrowed and is steady once they are
- * not, so blinking means "still changeable".
+/* Adjusting is a setting, not a switch. Whether the element is running is a
+ * separate question, and opening the choice must not answer it either way.
  */
-TEST(the_lamp_blinks_only_while_armed)
+TEST(arming_does_not_switch_heat_on)
 {
-    int lit = 0, dark = 0;
-
     reset();
+    CHECK(!heat_is_on());
+
+    heat_arm();
+    CHECK(adjust_armed());
+    CHECK(!heat_is_on());
+
+    /* And a level picked while off still does not start it. */
+    heat_set_level(2);
+    adjust_pick(2);                     /* what control.c does with a pick */
+    run_ms(1);
+    CHECK(!heat_is_on());
+    CHECK(!adjust_armed());
+    CHECK_EQ(fake_pin[PIN_HEATER], 0);
+
+    /* But it is what the next switch-on runs at. */
+    heat_press();
+    CHECK(heat_is_on());
+    CHECK_EQ(heat_level(), 2);
+}
+
+/* A pick closes the window on the spot rather than staying open to be
+ * corrected: a lit bar that is still taking input reads as not having
+ * understood.
+ */
+TEST(a_pick_closes_the_window)
+{
+    reset();
+
     heat_press();
     heat_arm();
+    CHECK(adjust_armed());
 
-    for (uint32_t t = 0; t < ADJUST_BLINK_MS * 4u; t += 50) {
-        run_ms(50);
-        if (heat_led()) lit++; else dark++;
-    }
-
-    CHECK(lit > 0);
-    CHECK(dark > 0);
-
-    heat_press();                       /* accept, closing the window */
-    run_ms(1);
+    heat_set_level(2);
+    adjust_pick(2);
     CHECK(!adjust_armed());
+}
 
-    for (uint32_t t = 0; t < ADJUST_BLINK_MS * 4u; t += 50) {
-        run_ms(50);
-        CHECK(heat_led());
-    }
+/* The two ways to set a level differ in exactly one respect: whether the chair
+ * remembers it. A preset recall uses the quiet one, so recalling a soft preset
+ * must not lose the level you last chose by hand.
+ */
+TEST(using_a_level_does_not_remember_it)
+{
+    reset();
+
+    heat_press();
+    heat_arm();
+    heat_set_level(2);                  /* chosen by hand: remembered */
+    heat_press();
+
+    heat_use_level(4);                  /* a preset's level: not remembered */
+    CHECK_EQ(heat_level(), 4);
+
+    heat_press();                       /* off */
+    heat_press();                       /* on, from the remembered level */
+    CHECK_EQ(heat_level(), 2);
 }
 
 #endif /* ENH_HEAT_LEVELS */
@@ -337,7 +372,9 @@ int main(void)
     RUN(arming_while_on_only_opens_the_choice);
     RUN(the_owners_press_accepts_rather_than_switching_off);
     RUN(switching_off_closes_the_adjuster);
-    RUN(the_lamp_blinks_only_while_armed);
+    RUN(arming_does_not_switch_heat_on);
+    RUN(a_pick_closes_the_window);
+    RUN(using_a_level_does_not_remember_it);
 #endif
 
     printf("%d checks, %d failed\n\n", tests_run, tests_failed);

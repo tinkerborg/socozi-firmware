@@ -13,6 +13,8 @@
 
 #include <stdint.h>
 
+#include "enhancements.h"
+
 /* --- Tunables ---
  *
  * Relay sequencing. The factory firmware never energises a motor at the moment
@@ -73,6 +75,43 @@
  */
 #define MOTION_ARM_MS        500
 #define MOTION_ARRIVED_MS    300
+
+#if ENH_POSITION_TRACK
+
+/* --- Position, ENH_POSITION_TRACK ---
+ *
+ * Dead reckoning, and nothing better is available: there is no encoder, no pot,
+ * and no feedback at all except the current-zero at the stops. A position is
+ * how many milliseconds of upward travel an axis is above its down stop.
+ *
+ * It drifts, and the drift is not symmetric — gravity and body weight assist
+ * one direction and oppose the other, so a second down and a second up are not
+ * the same distance. Reaching the down stop re-zeroes the estimate, which is
+ * the only correction there is. See enhancements-spec.md §2.7.
+ *
+ * MEASURE THESE ON THE CHAIR. They are the stop-to-stop travel time per axis
+ * and they are currently guesses; everything scales off them.
+ */
+#define MOTION_TRAVEL_RECLINE_MS  26000u
+#define MOTION_TRAVEL_HEADREST_MS 12000u
+
+/* Close enough to the down stop to call it home, since the estimate will never
+ * land exactly on zero.
+ */
+#define MOTION_HOME_MS 1500u
+
+/* How close a restore has to get before it stops. Tighter than this and the
+ * relays chatter on the last few hundred milliseconds for no visible gain.
+ */
+#define MOTION_SEEK_MS 400u
+
+uint32_t motion_pos_recline(void);
+uint32_t motion_pos_headrest(void);
+
+/* Both axes within MOTION_HOME_MS of their down stops. */
+int motion_at_home(void);
+
+#endif /* ENH_POSITION_TRACK */
 
 /* Values match dbg.motion / MOTION_* in debug.h. */
 

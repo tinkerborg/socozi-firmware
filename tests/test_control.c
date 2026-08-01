@@ -14,6 +14,7 @@
 
 #include "adjust.h"
 #include "button.h"
+#include "macros/preset.h"
 #include "control.h"
 #include "debug.h"
 #include "enhancements.h"
@@ -96,6 +97,16 @@ static void reset(void)
 #endif
 #if ENH_POWER_DOUBLE_TAP
     dbg.auto_moves = 0;
+#endif
+#if ENH_PRESET
+    dbg.presets_saved    = 0;
+    dbg.presets_recalled = 0;
+
+    /* Slots outlive a test the same way the levels do. Wiping the store puts
+     * every one back to unwritten.
+     */
+    fake_flash_wipe();
+    settings_init();
 #endif
 }
 
@@ -244,6 +255,12 @@ TEST(leds_mirror_what_is_driven)
 
 /* --- the hold macro, §8 --- */
 
+#if !ENH_PRESET
+
+/* The factory gesture, kept only where the POWER hold is still free. With
+ * ENH_PRESET the hold arms the preset slots and the flatten is reached by the
+ * double tap instead, covered under §2.2.
+ */
 TEST(holding_power_drives_the_chair_flat)
 {
     reset();
@@ -285,6 +302,22 @@ TEST(a_held_macro_keeps_comfort_on_until_release)
     CHECK(!power_is_on());
     CHECK_EQ(fake_shift, VALVE_VENT);       /* and only then, the vent */
 }
+
+#else /* ENH_PRESET */
+
+/* The hold is spent on presets, so it must not move anything. */
+TEST(holding_power_arms_rather_than_flattening)
+{
+    reset();
+    hold(HS_POWER, BUTTON_HOLD_MS + ENGAGED_MS);
+
+    CHECK_EQ(motion_active(), MOTION_NONE);
+    CHECK(!any_recline_pin());
+
+    release(10);
+}
+
+#endif /* !ENH_PRESET */
 
 TEST(a_short_power_press_is_not_the_macro)
 {
@@ -421,7 +454,7 @@ static const uint8_t level_button[ADJUST_LEVEL_MAX] = {
 /* Hold an adjuster's own button past its threshold, shorter than POWER's. */
 static void hold_adjust(uint8_t button)
 {
-    hold(button, BUTTON_ADJUST_HOLD_MS + 20);
+    hold(button, BUTTON_SHORT_HOLD_MS + 20);
     release(20);
 }
 
@@ -455,8 +488,8 @@ TEST(a_tap_switches_heat_on_at_the_remembered_level)
     CHECK(!heat_is_on());
 }
 
-/* The hold is the gesture that asks. Off, it switches on and asks; on, it just
- * asks.
+/* The hold asks about the level and nothing else. Whether heat is running is a
+ * separate question, and the hold leaves it exactly as it found it.
  */
 TEST(holding_heat_opens_the_level_buttons)
 {
@@ -464,20 +497,24 @@ TEST(holding_heat_opens_the_level_buttons)
     tap(HS_POWER);
 
     hold_heat();
-    CHECK(heat_is_on());
     CHECK(adjust_armed());
-
-    /* And the release that ended the hold did not toggle it back off. */
-    run_ms(50);
-    CHECK(heat_is_on());
+    CHECK(!heat_is_on());               /* off stays off */
 
     tap(HS_HEAT);                       /* accept, closing the window */
     CHECK(!adjust_armed());
-    CHECK(heat_is_on());                /* not an off switch, an answer */
+    CHECK(!heat_is_on());               /* an answer, not a switch */
 
     settle_bar();
-    hold_heat();                        /* already on: straight to the choice */
+    tap(HS_HEAT);                       /* now switch it on */
+    CHECK(heat_is_on());
+
+    settle_bar();
+    hold_heat();
     CHECK(adjust_armed());
+    CHECK(heat_is_on());                /* and on stays on */
+
+    /* The release that ended the hold did not toggle it either. */
+    run_ms(50);
     CHECK(heat_is_on());
 }
 
@@ -507,13 +544,13 @@ TEST(a_borrowed_button_never_reaches_its_motor)
     hold_heat();
     CHECK(adjust_armed());
 
-    /* Hold the level button down far longer than the window it just closed. */
-    hold(HS_RECLINE_UP, ADJUST_REPICK_MS + ENGAGED_MS);
+    /* Hold the level button down long past the window it just closed. */
+    hold(HS_RECLINE_UP, ENGAGED_MS + 2000);
 
     CHECK_EQ(heat_level(), HEAT_LEVEL_MAX);
     CHECK_EQ(motion_active(), MOTION_NONE);
     CHECK(!any_recline_pin());
-    CHECK(!adjust_armed());               /* the window did close underneath */
+    CHECK(!adjust_armed());               /* the pick closed it underneath */
 
     release(10);
 
@@ -534,9 +571,9 @@ TEST(the_buttons_go_back_to_the_motors)
 
     tap(level_button[0]);
     CHECK_EQ(heat_level(), 1);
+    CHECK(!adjust_armed());             /* the pick shut it immediately */
 
-    run_ms(ADJUST_REPICK_MS + 20);
-    CHECK(!adjust_armed());
+    settle_bar();
 
     hold(HS_HEADREST_DOWN, ENGAGED_MS);
     CHECK_EQ(motion_active(), MOTION_HEADREST_DOWN);
@@ -577,7 +614,7 @@ TEST(heat_does_not_dismiss_its_own_readout)
     tap(HS_HEAT);
     CHECK(fake_leds & BAR_LAMPS);
 
-    hold(HS_HEAT, BUTTON_ADJUST_HOLD_MS - 200);
+    hold(HS_HEAT, BUTTON_SHORT_HOLD_MS - 200);
     CHECK(fake_leds & BAR_LAMPS);       /* still up, part way into the hold */
 
     run_ms(220);                        /* and it becomes the menu */
@@ -605,7 +642,7 @@ TEST(the_bar_fills_in_from_the_bottom)
     reset();
     tap(HS_POWER);
 
-    hold(HS_HEAT, BUTTON_ADJUST_HOLD_MS + 5);
+    hold(HS_HEAT, BUTTON_SHORT_HOLD_MS + 5);
     CHECK_EQ(fake_leds & BAR_LAMPS, bar_lamp[0]);
 
     for (int i = 1; i < HEAT_LEVEL_DEFAULT; i++) {
@@ -705,7 +742,9 @@ TEST(the_level_sets_the_duty_cycle)
 
 /* --- massage intensity, enhancements-spec.md §2.6 --- */
 
-/* The same gesture as heat, on the massage button, driving the same adjuster.
+/* The same gesture as heat, on the massage button, driving the same adjuster —
+ * and like heat it changes only the intensity. Whether the massage is running
+ * is a separate question that the hold does not answer.
  */
 TEST(holding_massage_opens_the_level_buttons)
 {
@@ -713,17 +752,21 @@ TEST(holding_massage_opens_the_level_buttons)
     tap(HS_POWER);
 
     hold_massage();
-    CHECK(pneumatics_massage_on());
     CHECK(adjust_armed());
     CHECK_EQ(adjust_owner(), ADJUST_MASSAGE);
+    CHECK(!pneumatics_massage_on());    /* off stays off */
 
-    /* The release that ended the hold did not toggle massage back off. */
+    /* The release that ended the hold did not start it either. */
     run_ms(50);
-    CHECK(pneumatics_massage_on());
+    CHECK(!pneumatics_massage_on());
 
     tap(HS_MASSAGE);                    /* accept */
     CHECK(!adjust_armed());
-    CHECK(pneumatics_massage_on());     /* an answer, not an off switch */
+    CHECK(!pneumatics_massage_on());    /* an answer, not a switch */
+
+    settle_bar();
+    tap(HS_MASSAGE);                    /* and now the toggle is a toggle */
+    CHECK(pneumatics_massage_on());
 }
 
 /* Each of the four buttons picks its own intensity. */
@@ -795,6 +838,349 @@ TEST(massage_gestures_are_gated_by_power)
 
 #endif /* ADJUST_IN_USE */
 
+#if ENH_PRESET
+
+/* --- presets, enhancements-spec.md §2.8 --- */
+
+/* Open the store window. */
+static void arm_presets(void)
+{
+    hold(HS_POWER, BUTTON_HOLD_MS + 20);
+    release(20);
+}
+
+/* Hold POWER, then tap a motion button, without moving that motor. */
+static void save_preset(int slot)
+{
+    arm_presets();
+    tap(level_button[slot]);
+}
+
+/* The same window, but holding the slot button, which clears it instead. */
+static void clear_preset(int slot)
+{
+    arm_presets();
+    hold(level_button[slot], BUTTON_SHORT_HOLD_MS + 20);
+    release(20);
+}
+
+/* Every lamp the four slots can light. */
+#define SLOT_LAMPS BAR_LAMPS
+
+/* Let a save's confirmation flash run out. Longer than settle_bar(), which only
+ * covers a slide.
+ */
+static void settle_flash(void)
+{
+    run_ms(ADJUST_CONFIRM_FLASHES * 2u * ADJUST_CONFIRM_MS + 50);
+}
+
+/* Drive an axis up for a while so there is a position worth saving. */
+static void raise_recline(uint32_t ms)
+{
+    hold(HS_RECLINE_UP, MOTION_SETTLE_MS + MOTION_STAGGER_MS + ms);
+    release(20);
+}
+
+TEST(a_slot_records_where_the_chair_is)
+{
+    reset();
+    tap(HS_POWER);
+
+    raise_recline(3000);
+    CHECK(motion_pos_recline() > 0);
+
+    save_preset(0);
+    CHECK_EQ(dbg.presets_saved, 1);
+
+    /* Saving moves nothing. */
+    CHECK_EQ(motion_active(), MOTION_NONE);
+}
+
+/* While armed, a motion button writes a slot rather than driving its motor,
+ * and stays off it for as long as it is held.
+ */
+TEST(an_armed_press_never_reaches_its_motor)
+{
+    reset();
+    tap(HS_POWER);
+
+    hold(HS_POWER, BUTTON_HOLD_MS + 20);
+    release(20);
+
+    /* Held past the point the relays would have closed, and nothing moves. The
+     * save itself waits for the release, because a hold means clear.
+     */
+    hold(HS_RECLINE_UP, ENGAGED_MS);
+    CHECK_EQ(motion_active(), MOTION_NONE);
+    CHECK(!any_recline_pin());
+    CHECK_EQ(dbg.presets_saved, 0);
+
+    release(10);
+    CHECK_EQ(dbg.presets_saved, 1);
+
+    /* Released and pressed again, it is a motion button once more. */
+    hold(HS_RECLINE_UP, ENGAGED_MS);
+    CHECK_EQ(motion_active(), MOTION_RECLINE_UP);
+    release(10);
+}
+
+/* The window closes on its own, and the buttons go back to the motors. */
+TEST(the_armed_window_expires)
+{
+    reset();
+    tap(HS_POWER);
+
+    hold(HS_POWER, BUTTON_HOLD_MS + 20);
+    release(PRESET_ARM_MS + 50);
+
+    hold(HS_HEADREST_DOWN, ENGAGED_MS);
+    CHECK_EQ(motion_active(), MOTION_HEADREST_DOWN);
+    CHECK_EQ(dbg.presets_saved, 0);
+    release(10);
+}
+
+/* A double tap on a slot that has never been written must do nothing. All
+ * zeros is a legitimate preset, so without the written-bitmap this would drive
+ * the chair flat and switch everything off.
+ */
+TEST(recalling_an_empty_slot_does_nothing)
+{
+    reset();
+    tap(HS_POWER);
+
+    raise_recline(3000);
+    release(20);
+
+    tap(level_button[2]);
+    tap(level_button[2]);
+    run_ms(50);
+
+    CHECK_EQ(dbg.presets_recalled, 0);
+    CHECK_EQ(motion_active(), MOTION_NONE);
+}
+
+/* Save somewhere, move away, and come back to it. */
+TEST(a_recall_returns_to_the_saved_position)
+{
+    uint32_t saved;
+
+    reset();
+
+    /* Current flowing, so nothing "arrives" mid-travel and the seek has to
+     * reach the target on the position estimate alone. At zero the end-of-
+     * travel stop fires a second in and re-zeroes, which would pass this test
+     * without ever exercising a seek.
+     */
+    dbg.adc = RUNNING_CURRENT;
+
+    tap(HS_POWER);
+
+    raise_recline(4000);
+    saved = motion_pos_recline();
+    CHECK(saved > 0);
+
+    save_preset(1);
+    settle_bar();
+
+    /* Away from it, far enough that a seek has to move. */
+    hold(HS_RECLINE_DOWN, MOTION_SETTLE_MS + 2000);
+    release(20);
+    CHECK(motion_pos_recline() < saved);
+
+    tap(level_button[1]);
+    tap(level_button[1]);
+    CHECK_EQ(dbg.presets_recalled, 1);
+
+    /* Unattended: nothing is held, and the macro renews the request itself.
+     *
+     * Two sources of slop, and the test has to allow both: the slot stores the
+     * position in PRESET_STEP_MS units, so its target is up to a step below
+     * where the chair actually was, and the seek stops within MOTION_SEEK_MS of
+     * that target rather than chasing it exactly.
+     */
+    run_ms(MOTION_SETTLE_MS + 4000);
+    CHECK(motion_pos_recline() + MOTION_SEEK_MS + PRESET_STEP_MS >= saved);
+    CHECK(motion_pos_recline() <= saved + MOTION_SEEK_MS);
+}
+
+/* Held rather than tapped, because clearing throws something away and a tap
+ * already means save.
+ */
+TEST(holding_a_slot_clears_it)
+{
+    reset();
+    tap(HS_POWER);
+
+    raise_recline(3000);
+    save_preset(2);
+    CHECK(settings_preset_used(2));
+    settle_flash();
+
+    clear_preset(2);
+    CHECK(!settings_preset_used(2));
+    CHECK_EQ(dbg.presets_saved, 1);     /* a clear is not a save */
+
+    /* Out of the window first, or the taps below would be taken as a save and
+     * put something back in the slot.
+     */
+    tap(HS_POWER);
+    CHECK(!preset_armed());
+    settle_bar();
+
+    /* And an emptied slot recalls as nothing, like one never written. */
+    tap(level_button[2]);
+    tap(level_button[2]);
+    CHECK_EQ(dbg.presets_recalled, 0);
+}
+
+/* A cleared slot survives a reboot as cleared: all zeros is a legitimate
+ * preset, so "never written" has to be stored rather than inferred.
+ */
+TEST(a_cleared_slot_stays_cleared)
+{
+    reset();
+    tap(HS_POWER);
+
+    raise_recline(3000);
+    save_preset(1);
+    settle_bar();
+
+    clear_preset(1);
+    settle_bar();
+
+    settings_init();                    /* as if the chair had been reset */
+    CHECK(!settings_preset_used(1));
+}
+
+/* POWER opened the window, so POWER backs out of it — without writing anything
+ * and without toggling the gate on the way.
+ */
+TEST(power_cancels_the_store_window)
+{
+    reset();
+    tap(HS_POWER);
+    CHECK(power_is_on());
+
+    arm_presets();
+    CHECK(preset_armed());
+
+    tap(HS_POWER);
+    CHECK(!preset_armed());
+    CHECK(power_is_on());               /* not also a toggle */
+    CHECK_EQ(dbg.presets_saved, 0);
+
+    /* And the motion buttons are motors again. */
+    settle_bar();
+    hold(HS_HEADREST_DOWN, ENGAGED_MS);
+    CHECK_EQ(motion_active(), MOTION_HEADREST_DOWN);
+    CHECK_EQ(dbg.presets_saved, 0);
+    release(10);
+}
+
+/* The window says which of the four slots are taken, or the store mode is four
+ * dark buttons and no clue which of them means anything.
+ */
+TEST(the_store_window_shows_which_slots_are_taken)
+{
+    reset();
+    tap(HS_POWER);
+
+    raise_recline(3000);
+    save_preset(0);
+    settle_bar();
+
+    arm_presets();
+
+    /* Let the display finish arriving, then watch a blink cycle. Slot 0 is
+     * taken so it stays lit; the other three are free and blink, so at some
+     * point in the cycle they are dark while slot 0 is not.
+     */
+    run_ms(ADJUST_BAR_STEP_MS * ADJUST_LEVEL_MAX + 20);
+
+    {
+        int saw_only_taken = 0;
+        uint8_t free_lamps = (uint8_t)(SLOT_LAMPS & ~bar_lamp[0]);
+
+        for (uint32_t t = 0; t < PRESET_ARM_BLINK_MS * 3u; t += 20) {
+            run_ms(20);
+
+            if ((fake_leds & bar_lamp[0])
+                && (fake_leds & free_lamps) == 0) {
+                saw_only_taken = 1;
+            }
+        }
+
+        CHECK(saw_only_taken);
+    }
+}
+
+/* The slot display arrives a lamp at a time, the same way the level bar does. */
+TEST(the_store_window_animates_in)
+{
+    reset();
+    tap(HS_POWER);
+
+    hold(HS_POWER, BUTTON_HOLD_MS + 5);
+
+    /* One lamp so far, and it is the bottom one. */
+    CHECK_EQ(fake_leds & SLOT_LAMPS, bar_lamp[0]);
+
+    run_ms(ADJUST_BAR_STEP_MS);
+    CHECK_EQ(fake_leds & SLOT_LAMPS,
+             (uint8_t)(bar_lamp[0] | bar_lamp[1]));
+
+    release(20);
+}
+
+/* Saving flashes the slot that took it and then leaves, rather than settling
+ * on anything: the gesture is an event, not a mode.
+ */
+TEST(a_save_flashes_the_slot_then_clears)
+{
+    int dark = 0;
+
+    reset();
+    tap(HS_POWER);
+
+    raise_recline(3000);
+    save_preset(3);
+
+    /* Flashing: the lamp is not simply held on. */
+    for (uint32_t t = 0; t < ADJUST_CONFIRM_MS * 2u; t += 20) {
+        run_ms(20);
+        if ((fake_leds & bar_lamp[3]) == 0) {
+            dark = 1;
+        }
+    }
+    CHECK(dark);
+
+    /* And then nothing at all. */
+    settle_flash();
+    CHECK_EQ(fake_leds & SLOT_LAMPS, 0);
+}
+
+/* A recall is not behind the POWER gate, and switches it on itself. */
+TEST(a_recall_works_with_the_chair_off)
+{
+    reset();
+    tap(HS_POWER);
+    raise_recline(3000);
+    save_preset(3);
+    settle_bar();
+
+    tap(HS_POWER);                      /* off */
+    CHECK(!power_is_on());
+
+    tap(level_button[3]);
+    tap(level_button[3]);
+    run_ms(MOTION_SETTLE_MS + 4000);
+
+    CHECK(power_is_on());
+}
+
+#endif /* ENH_PRESET */
+
 int main(void)
 {
     printf("control\n");
@@ -805,8 +1191,12 @@ int main(void)
     RUN(motion_is_not_gated_by_power);
     RUN(a_silent_handset_stops_motion);
     RUN(leds_mirror_what_is_driven);
+#if !ENH_PRESET
     RUN(holding_power_drives_the_chair_flat);
     RUN(a_held_macro_keeps_comfort_on_until_release);
+#else
+    RUN(holding_power_arms_rather_than_flattening);
+#endif
     RUN(a_short_power_press_is_not_the_macro);
 #if ENH_HEAT_LEVELS
     RUN(a_tap_switches_heat_on_at_the_remembered_level);
@@ -828,6 +1218,20 @@ int main(void)
     RUN(only_one_thing_owns_the_adjuster);
     RUN(the_intensity_is_remembered_between_uses);
     RUN(massage_gestures_are_gated_by_power);
+#endif
+#if ENH_PRESET
+    RUN(a_slot_records_where_the_chair_is);
+    RUN(an_armed_press_never_reaches_its_motor);
+    RUN(the_armed_window_expires);
+    RUN(recalling_an_empty_slot_does_nothing);
+    RUN(a_recall_returns_to_the_saved_position);
+    RUN(a_recall_works_with_the_chair_off);
+    RUN(holding_a_slot_clears_it);
+    RUN(a_cleared_slot_stays_cleared);
+    RUN(power_cancels_the_store_window);
+    RUN(the_store_window_shows_which_slots_are_taken);
+    RUN(the_store_window_animates_in);
+    RUN(a_save_flashes_the_slot_then_clears);
 #endif
 #if ENH_POWER_DOUBLE_TAP
     RUN(a_double_tap_runs_the_macro_with_nothing_held);

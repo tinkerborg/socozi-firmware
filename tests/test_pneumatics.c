@@ -198,6 +198,16 @@ static void lumbar_release(void)
     pneumatics_lumbar_release();
     run_ms(1);
 }
+
+/* Press and let go straight away. On a cell that already has air in it that is
+ * the off switch; the press alone only starts the pump, since what a press
+ * meant is decided on release.
+ */
+static void lumbar_tap(void)
+{
+    press(HS_LUMBAR);
+    lumbar_release();
+}
 #endif
 
 static void lumbar_to_hold(void)
@@ -236,7 +246,11 @@ TEST(lumbar_cycles_inflate_hold_deflate)
     CHECK_EQ(fake_pin[PIN_PUMP], 0);
     CHECK(pneumatics_lumbar_lit());
 
+#if ENH_LUMBAR_HOLD_SET
+    lumbar_tap();
+#else
     press(HS_LUMBAR);
+#endif
     CHECK_EQ(fake_shift, VALVE_VENT);    /* exhaust only, no bladder bit */
     CHECK_EQ(fake_pin[PIN_PUMP], 0);
     CHECK(!pneumatics_lumbar_lit());
@@ -367,7 +381,11 @@ TEST(lumbar_deflate_keeps_running_through_a_motion)
 {
     reset();
     lumbar_to_hold();
-    press(HS_LUMBAR);                       /* deflate */
+#if ENH_LUMBAR_HOLD_SET
+    lumbar_tap();                           /* deflate */
+#else
+    press(HS_LUMBAR);
+#endif
     CHECK_EQ(fake_shift, VALVE_VENT);
 
     motion_request(MOTION_RECLINE_UP);
