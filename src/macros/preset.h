@@ -90,7 +90,7 @@ void preset_cancel(void);
 void preset_recall(uint8_t slot);
 
 /* True while a recall is moving the chair. Any button cancels one, and the
- * button that does the cancelling does nothing else — reaching for a control
+ * button that does the canceling does nothing else — reaching for a control
  * to stop the chair should not also switch that control on.
  */
 int preset_moving(void);

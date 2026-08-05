@@ -1,11 +1,11 @@
 /* Enhancement feature flags.
  *
- * Everything this firmware does beyond the factory behaviour sits behind a flag
+ * Everything this firmware does beyond the factory behavior sits behind a flag
  * from this header. `ENHANCED` is the master switch, defined on the command
  * line by the Makefile:
  *
  *     make              ENHANCED=1, the default build, all enhancements on
- *     make reference    ENHANCED=0, factory-equivalent behaviour
+ *     make reference    ENHANCED=0, factory-equivalent behavior
  *
  * The reference build is what we fall back to when an enhancement misbehaves in
  * the chair, so it has to stay buildable and testable. `make test` runs the host
@@ -15,7 +15,7 @@
  * off without giving up the others. Guard code with `#if`, never `#ifdef`, every
  * flag here is always defined as 0 or 1.
  *
- * Behaviour behind these flags is specified in docs/enhancements-spec.md;
+ * Behavior behind these flags is specified in docs/enhancements-spec.md;
  * docs/firmware-spec.md stays a description of the reference firmware alone.
  */
 
@@ -94,7 +94,7 @@
 #define ADJUST_IN_USE (ENH_HEAT_LEVELS || ENH_MASSAGE_LEVELS)
 
 /* Anything that takes a motion button for something other than its motor:
- * level picks, preset slots, and cancelling a recall. control.c keeps one latch
+ * level picks, preset slots, and canceling a recall. control.c keeps one latch
  * for all of them, because they all need the same thing — the press must not
  * reach the motor, and must stay off it until the button comes up.
  */

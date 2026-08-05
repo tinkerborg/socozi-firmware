@@ -1,11 +1,11 @@
 # Chair firmware, enhancements specification
 
-Normative spec for behaviour this firmware adds **beyond** the factory chair.
+Normative spec for behavior this firmware adds **beyond** the factory chair.
 [firmware-spec.md](firmware-spec.md) stays a description of the reference
 firmware alone; anything specified here is absent from a `make reference` build.
 
 **Process: update this spec before changing the code**, same rule as the
-firmware spec. If behaviour and spec disagree, one of them is a bug, decide
+firmware spec. If behavior and spec disagree, one of them is a bug, decide
 which, then fix it.
 
 Status key: **[done]** implemented and verified on the chair ·
@@ -28,14 +28,14 @@ make flash-reference   # flash the reference image
 The enhanced build is the default and the one that runs on the chair. The
 reference build exists as the fallback: if an enhancement misbehaves in a way
 that is awkward to debug from a chair someone is sitting in, `make
-flash-reference` gets back to known-good factory behaviour in one step, without
+flash-reference` gets back to known-good factory behavior in one step, without
 checking out an older commit.
 
 Requirements on the flag itself:
 
 - A build with `ENHANCED=0` **SHALL** behave exactly as
   [firmware-spec.md](firmware-spec.md) describes. No enhancement may change
-  reference behaviour, including timing and pin state, when compiled out.
+  reference behavior, including timing and pin state, when compiled out.
 - Every enhancement **SHALL** sit behind a flag from `enhancements.h`, and each
   per-enhancement flag **SHALL** default to `ENHANCED`. This keeps a single
   enhancement switchable without giving up the rest.
@@ -53,7 +53,7 @@ Requirements on the flag itself:
 
 ### 2.1 End-of-travel stop, `ENH_END_OF_TRAVEL_STOP` **[done]**
 
-Reference behaviour: `MOTION_FLATTEN` drives until the button is released or the
+Reference behavior: `MOTION_FLATTEN` drives until the button is released or the
 30 s ceiling expires, holding the relays closed against an open limit switch for
 whatever is left.
 
@@ -67,7 +67,7 @@ signal [firmware-spec.md](firmware-spec.md#9-current-sensing-and-stall-detection
   continuously for `MOTION_ARRIVED_MS`, no earlier than `MOTION_ARM_MS` after
   the first contact closes. Tunables in `motion.h`, 300 ms and 500 ms.
 - The arming window exists because zero is also what the channel reads before
-  anything is energised, across `MOTION_SETTLE_MS`, the recline stagger, and the
+  anything is energized, across `MOTION_SETTLE_MS`, the recline stagger, and the
   inrush spike. The hold time exists so one dropped sample cannot stop a motion
   mid-travel.
 - A failed conversion (`0xFFFFFFFF`) **SHALL NOT** count as zero. No reading is
@@ -126,7 +126,7 @@ the first tap rather than at the end.
 
 ### 2.3 Heat levels, `ENH_HEAT_LEVELS` **[done]**
 
-Reference behaviour: HEAT is a plain toggle and the element is driven fully on,
+Reference behavior: HEAT is a plain toggle and the element is driven fully on,
 continuously, per [firmware-spec.md](firmware-spec.md#heat-done) §8.
 
 This adds four heat levels, delivered by duty cycling the element. The design
@@ -220,9 +220,9 @@ left alone.
 
 - The element **SHALL** be switched on a `HEAT_DUTY_PERIOD_MS` (20 s) cycle at
   25% / 50% / 75% / 100% for levels 1 to 4, phased from the moment heat was
-  switched on so the cycle always begins with the element energised.
+  switched on so the cycle always begins with the element energized.
 - Level 4 is 100%, that is, continuous. The top level is exactly the reference
-  behaviour, so the enhancement only ever removes heat.
+  behavior, so the enhancement only ever removes heat.
 - The period is deliberately slow. Fast switching would put noise on a board
   that already has unexplained USART errors on the handset cable, and the gate
   drive on the heater FET is not characterised. The element's thermal mass
@@ -243,7 +243,7 @@ Reported as `dbg.heat_level`, 0 when off.
 
 ### 2.4 Persistent settings, `ENH_SETTINGS_PERSIST` **[done]**
 
-Reference behaviour: nothing is remembered. Every reset starts from the
+Reference behavior: nothing is remembered. Every reset starts from the
 compiled-in defaults, which is what the factory firmware does — the flash region
 that looked like a settings area turned out not to be one, see
 [firmware-map.md](firmware-map.md#next-steps).
@@ -253,8 +253,11 @@ does not provide, so main flash is the only option. It is used as an
 **append-only log in one reserved page**, not as a fixed location that gets
 rewritten.
 
-- The last 4 KiB page **SHALL** be reserved for the store and **SHALL NOT** be
-  used by the linker for anything else.
+- A page is **1 KiB**, the FMC's erase granularity. Measured on the chair: after
+  erasing `0x08000000`, programming `0x08000400` sets PGERR.
+- One page at `0x0800F000` **SHALL** be the store and **SHALL NOT** be used by
+  the linker for anything else. The linker script reserves the last 4 KiB rather
+  than the last 1 KiB, so the store can grow later without moving code.
 - A record **SHALL** be 32 bytes: 31 payload bytes and a check byte, the check
   being the complement of their sum. An erased record is all `0xFF`, whose
   payload sums to a complement of `0x1E`, which is not the `0xFF` in the check
@@ -291,8 +294,8 @@ has never been given a meaning. The bitmap is what lets §2.8 refuse it.
 
 Not a consideration, and the arithmetic is worth writing down so nobody has to
 redo it. The datasheet gives **100 kcycles** endurance and 25 years retention.
-At 128 records per erase that is on the order of 10⁷ saves. A chair whose
-settings changed every hour of every day would take roughly a thousand years.
+At 32 records per erase that is on the order of 3 × 10⁶ saves. A chair whose
+settings changed every hour of every day would take roughly three centuries.
 
 #### When it is safe to write
 
@@ -330,7 +333,7 @@ Writes counted in `dbg.settings_writes`, erases in `dbg.settings_erases`.
 
 ### 2.5 Lumbar hold-to-set, `ENH_LUMBAR_HOLD_SET` **[done]**
 
-Reference behaviour: LUMBAR is a four-state cycle, inflate → hold → deflate →
+Reference behavior: LUMBAR is a four-state cycle, inflate → hold → deflate →
 off, one press each, per [firmware-spec.md](firmware-spec.md#lumbar-done) §8.
 Getting a particular firmness means pressing once, waiting, and pressing again
 at the right moment, and there is no way to ask for the same firmness twice.
@@ -421,7 +424,7 @@ A bar graph for the level is intended and not specified here.
 
 ### 2.6 Massage intensity, `ENH_MASSAGE_LEVELS` **[done]**
 
-Reference behaviour: one intensity, the only one the factory offers, and it is
+Reference behavior: one intensity, the only one the factory offers, and it is
 the strongest the hardware can do. There is no way to ask for less.
 
 Four intensities, chosen exactly the way heat levels are — hold MASSAGE, pick on
@@ -471,7 +474,7 @@ gentler, it would delete two thirds of it.
 - The numbers above are tuning, not architecture. They live in one table at the
   top of `pneumatics.c` and are expected to move after time on the chair.
 
-#### Behaviour
+#### Behavior
 
 - Tapping MASSAGE **SHALL** toggle it, at the remembered intensity, and put the
   bar up as a readout. Like HEAT, it acts on release so the hold can mean
@@ -486,7 +489,7 @@ Reported as `dbg.massage_level`.
 
 ### 2.7 Position tracking, `ENH_POSITION_TRACK` **[done]**
 
-Reference behaviour: the chair has no idea where it is. Motion is a duration and
+Reference behavior: the chair has no idea where it is. Motion is a duration and
 never a target, per [motion.h](../src/motion.h).
 
 There is no encoder, no potentiometer, and no feedback of any kind except the

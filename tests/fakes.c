@@ -2,7 +2,7 @@
  * debug block that main.c normally defines.
  *
  * Nothing here models the board. pin_write just records a level, so a test can
- * ask "is the pump energised right now" and get an answer without a chair.
+ * ask "is the pump energized right now" and get an answer without a chair.
  */
 
 #include "harness.h"
@@ -94,7 +94,7 @@ void handset_set_leds(uint8_t bits) { fake_leds = bits; }
 
 /* --- flash.h ---
  *
- * Modelled honestly rather than as a byte array: a write ANDs, because NOR
+ * Modeled honestly rather than as a byte array: a write ANDs, because NOR
  * flash can only clear bits, and programming a word that is not erased is an
  * error rather than a silent overwrite. Getting that wrong is the easiest way
  * to write a store that passes on the host and corrupts itself on the chair.

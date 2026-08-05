@@ -7,9 +7,30 @@ BUILD    = build
 BACKUPS  = backup
 WATCHDOG ?= 1
 
+# The RTT console, src/rtt.c. Costs about 600 bytes of RAM and changes nothing
+# the chair does, so it is on in both variants; `make RTT=0` leaves it out.
+RTT      ?= 1
+
+# The ESP32 bridge's two extra fields in the debug block, src/debug.h. Costs
+# eight bytes of RAM and no behavior, but it does grow the block, so the
+# `reference` target turns it off to keep that build's RAM layout untouched.
+BRIDGE   ?= 1
+
+# One word identifying this build, published in the debug block so the bridge
+# can tell what the chair is running. See src/version.h for the encoding: a
+# clean tree gives the commit, a dirty one gives the build time.
+#
+# Held in a file rather than computed per invocation. A dirty tree stamps the
+# time, so evaluating it twice would give two answers — and the image the
+# bridge carries would then claim a version the firmware inside it was never
+# compiled with, which is exactly the comparison the whole scheme rests on.
+# The file is rebuilt when, and only when, the image is.
+VERSION_FILE = $(BUILD)/version.txt
+FW_VERSION   = $(shell cat $(VERSION_FILE) 2>/dev/null || echo 0)
+
 # Build variant. ENHANCED=1, the default, builds the enhanced firmware; the
 # `reference` target rebuilds with ENHANCED=0, which is the factory-equivalent
-# behaviour described in docs/firmware-spec.md and the fallback if an
+# behavior described in docs/firmware-spec.md and the fallback if an
 # enhancement misbehaves in the chair.
 #
 # The two variants get different filenames so a reference image is never
@@ -26,15 +47,15 @@ endif
 
 TARGET   = $(BUILD)/socozi$(SUFFIX)
 
-SRCS    = src/main.c src/adc.c src/adjust.c src/button.c src/control.c \
-          src/flash.c src/gpio.c src/handset.c src/heat.c src/motion.c \
-          src/pneumatics.c src/power.c src/settings.c src/timing.c \
-          src/watchdog.c src/startup.c src/macros/flatten.c \
-          src/macros/preset.c
+SRCS    = src/main.c src/adc.c src/adjust.c src/button.c src/console.c \
+          src/control.c src/flash.c src/gpio.c src/handset.c src/heat.c \
+          src/motion.c src/pneumatics.c src/power.c src/rtt.c \
+          src/settings.c src/timing.c src/watchdog.c src/startup.c \
+          src/macros/flatten.c src/macros/preset.c
 LDSCRIPT = gd32e230c8.ld
 
 # The link is one compiler invocation, so there is no per-object dependency
-# tracking to lean on. Headers gate real behaviour now, enhancements.h most of
+# tracking to lean on. Headers gate real behavior now, enhancements.h most of
 # all, so a header edit that didn't rebuild would silently flash a stale image.
 HDRS    = $(wildcard src/*.h src/macros/*.h)
 
@@ -60,15 +81,16 @@ all: $(TARGET).bin
 
 # The factory-equivalent build, with every enhancement compiled out.
 reference:
-	@$(MAKE) --no-print-directory ENHANCED=0 all
+	@$(MAKE) --no-print-directory ENHANCED=0 BRIDGE=0 all
 
 flash-reference:
-	@$(MAKE) --no-print-directory ENHANCED=0 flash
+	@$(MAKE) --no-print-directory ENHANCED=0 BRIDGE=0 flash
 
-# Both tools are system packages; see README.md for per-distro install lines.
+# python3 is only needed for the ESP32 bridge; the venv it builds is disposable
+# and lives under build/.
 check:
 	@ok=1; \
-	for t in $(CC) openocd; do \
+	for t in $(CC) openocd python3; do \
 	  if command -v $$t >/dev/null 2>&1; then \
 	    echo "  ok      $$t"; \
 	  else \
@@ -90,8 +112,17 @@ check:
 $(BUILD):
 	mkdir -p $(BUILD)
 
-$(TARGET).elf: $(SRCS) $(HDRS) $(LDSCRIPT) | $(BUILD)
-	$(CC) $(CFLAGS) -DWATCHDOG=$(WATCHDOG) -DENHANCED=$(ENHANCED) $(LDFLAGS) \
+$(VERSION_FILE): $(SRCS) $(HDRS) $(LDSCRIPT) | $(BUILD)
+	@if [ -z "$$(git status --porcelain 2>/dev/null)" ] && \
+	    h=$$(git rev-parse --short=7 HEAD 2>/dev/null); then \
+	  printf '0x%s\n' "$$h" > $@; \
+	else \
+	  printf '0x%08x\n' $$(( 2147483648 + ($$(date +%s) & 2147483647) )) > $@; \
+	fi
+
+$(TARGET).elf: $(SRCS) $(HDRS) $(LDSCRIPT) $(VERSION_FILE) | $(BUILD)
+	$(CC) $(CFLAGS) -DWATCHDOG=$(WATCHDOG) -DRTT=$(RTT) -DENHANCED=$(ENHANCED) \
+	      -DBRIDGE=$(BRIDGE) -DFW_VERSION=$(FW_VERSION) $(LDFLAGS) \
 	      -Wl,-Map=$(TARGET).map $(SRCS) -o $@
 	@$(SIZE) $@
 
@@ -171,12 +202,30 @@ coverage:
 # `coverage` measures the default enhanced build.
 ci: all reference coverage
 
+# The bridge as well. Separate from `ci` because it downloads a RISC-V
+# toolchain and an ESP-IDF the firmware build has no use for, which is several
+# minutes on a cold cache.
+ci-esp: esp
+
 backup:
 	@mkdir -p $(BACKUPS)
 	openocd $(OPENOCD_ARGS) \
 	  -c "init" -c "reset halt" \
 	  -c "dump_image $(BACKUPS)/backup-$(shell date +%Y%m%d-%H%M%S).bin 0x08000000 0x10000" \
 	  -c "shutdown"
+
+# The RTT console. Leaves OpenOCD in the foreground serving TCP 9090; connect
+# with `telnet localhost 9090` from another terminal and press ? for the keys.
+#
+# The chair keeps running throughout. RTT is read out of SRAM by the debug
+# access port, which does its own bus transactions, so nothing is halted and
+# the watchdog is never in danger.
+console:
+	openocd $(OPENOCD_ARGS) \
+	  -c "init" \
+	  -c "rtt setup 0x20000000 0x2000 \"SEGGER RTT\"" \
+	  -c "rtt start" \
+	  -c "rtt server start 9090 0"
 
 # `reset halt` rather than `halt`: catches the core before the watchdog is
 # kicked, so writing over a running image doesn't need two passes.
@@ -213,8 +262,71 @@ reset:
 	openocd $(OPENOCD_ARGS) \
 	  -c "init" -c "reset run" -c "shutdown"
 
+# --- ESP32 bridge ---------------------------------------------------------
+#
+# An ESP32-C3 on the SWD pins, running ESPHome, so the chair appears in Home
+# Assistant and can be reflashed over wifi. See docs/esphome-design.md.
+#
+# Nothing here is vendored. ESPHome goes into a throwaway venv under build/,
+# and it fetches PlatformIO and the RISC-V toolchain into its own caches in
+# ~/.esphome and ~/.platformio, where any other ESPHome project on this machine
+# shares them. The two generated headers are the only files that land in the
+# tree, they are both gitignored, and `make esp-clean` removes the lot.
+#
+# They sit beside the component's own sources rather than in a subdirectory
+# because ESPHome copies only the top level of an external component into its
+# build.
+ESP_DIR      = esphome
+ESP_GEN      = $(ESP_DIR)/components/socozi
+ESP_VENV     = $(BUILD)/esphome-venv
+ESPHOME      = $(ESP_VENV)/bin/esphome
+ESPHOME_VER ?= 2025.7.0
+ESP_YAML    ?= $(ESP_DIR)/chair.yaml
+
+$(ESPHOME):
+	python3 -m venv $(ESP_VENV)
+	$(ESP_VENV)/bin/pip install --quiet --upgrade pip
+	$(ESP_VENV)/bin/pip install --quiet "esphome==$(ESPHOME_VER)"
+
+# Host-compiled with the firmware's flags, so the offsets it prints are the
+# ones the image being built actually uses.
+$(BUILD)/gen-dbg-layout: tools/gen-dbg-layout.c $(HDRS) $(VERSION_FILE) | $(BUILD)
+	$(TEST_CC) $(TEST_FLAGS) -DENHANCED=$(ENHANCED) -DBRIDGE=$(BRIDGE) \
+	  -DRTT=$(RTT) -DFW_VERSION=$(FW_VERSION) $< -o $@
+
+$(ESP_GEN)/socozi_layout.h: $(BUILD)/gen-dbg-layout
+	$< > $@
+
+$(ESP_GEN)/socozi_image.h: $(TARGET).bin tools/gen-image-header.sh
+	tools/gen-image-header.sh $(TARGET).bin $(FW_VERSION) > $@
+
+esp-gen: $(ESP_GEN)/socozi_layout.h $(ESP_GEN)/socozi_image.h
+
+# Placeholders, so a fresh clone and CI both compile without a manual step.
+# Good enough to build with and useless to run with, which is the intent.
+$(ESP_DIR)/secrets.yaml:
+	cp $(ESP_DIR)/secrets.yaml.example $@
+
+esp: $(ESPHOME) esp-gen $(ESP_DIR)/secrets.yaml
+	$(ESPHOME) compile $(ESP_YAML)
+
+# First time, over USB-C. Later updates go over wifi; both are `esphome run`,
+# which offers the choice when no device is named.
+esp-flash: $(ESPHOME) esp-gen $(ESP_DIR)/secrets.yaml
+	$(ESPHOME) run $(if $(ESP_DEVICE),--device $(ESP_DEVICE)) $(ESP_YAML)
+
+esp-ota: esp-flash
+
+esp-logs: $(ESPHOME)
+	$(ESPHOME) logs $(ESP_YAML)
+
+esp-clean:
+	rm -rf $(ESP_VENV) $(BUILD)/gen-dbg-layout $(ESP_DIR)/.esphome
+	rm -f $(ESP_GEN)/socozi_layout.h $(ESP_GEN)/socozi_image.h
+
 clean:
 	rm -rf $(BUILD)
 
 .PHONY: all reference check test test-variant coverage ci symbols backup flash \
-        flash-reference restore restore-factory debug reset clean
+        flash-reference restore restore-factory debug reset console clean \
+        esp esp-gen esp-flash esp-ota esp-logs esp-clean ci-esp

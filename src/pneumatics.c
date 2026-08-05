@@ -20,8 +20,9 @@
  * the handler raises the flag that enqueues action 0xF2, the function that
  * drives both motion control and the massage engine. So the engine ticks once
  * per 100 ms, making a 40-tick step 4 s and the 16-step wave about 55 s.
+ *
+ * MASSAGE_TICK_MS is in pneumatics.h.
  */
-#define MASSAGE_TICK_MS 100
 
 /* How long to hold the exhaust open when shutting a function down.
  *

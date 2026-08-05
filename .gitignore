@@ -6,3 +6,9 @@ build/
 backup/
 
 .DS_Store
+
+# ESPHome build products — generated from the firmware build.
+esphome/components/socozi/socozi_layout.h
+esphome/components/socozi/socozi_image.h
+esphome/.esphome/
+esphome/secrets.yaml

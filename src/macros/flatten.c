@@ -60,7 +60,7 @@ uint32_t flatten_update(uint8_t button)
 #if ENH_POWER_DOUBLE_TAP
     if (unattended) {
         if (button != HS_NONE) {
-            unattended = 0;         /* cancelled, leave everything as it is */
+            unattended = 0;         /* canceled, leave everything as it is */
         } else if (motion_active() == MOTION_NONE) {
             /* Ended on its own, at the stops or on the ceiling. The unattended
              * equivalent of releasing a held POWER.

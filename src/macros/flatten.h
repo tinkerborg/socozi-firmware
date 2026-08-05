@@ -2,9 +2,9 @@
  *
  * Drives both motion axes to their down position and then switches every
  * comfort function off. Reproduces the factory firmware's hidden POWER-hold
- * behaviour, which the handset does not advertise; see docs/firmware-spec.md §8.
+ * behavior, which the handset does not advertise; see docs/firmware-spec.md §8.
  *
- * Two ways in, one behaviour:
+ * Two ways in, one behavior:
  *
  *   held        POWER held past the threshold. Drives while it stays down, and
  *               finishes on release. This is the factory's.

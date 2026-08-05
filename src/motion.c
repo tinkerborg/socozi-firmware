@@ -9,7 +9,7 @@ enum {
     SEQ_IDLE = 0,
     SEQ_SETTLING,   /* direction selected, waiting for the relay to settle */
     SEQ_FIRST,      /* first enable closed */
-    SEQ_RUNNING,    /* fully energised */
+    SEQ_RUNNING,    /* fully energized */
 };
 
 /* A stall or timeout latches until the button is released, so a held button
@@ -71,7 +71,7 @@ void motion_stop(void)
     dbg.motion_ms   = 0;
 }
 
-/* Select direction without energising anything. */
+/* Select direction without energizing anything. */
 static void select_direction(uint32_t want)
 {
     switch (want) {
@@ -139,7 +139,7 @@ void motion_request(uint32_t want)
     }
 
     /* Any change, including to MOTION_NONE, drops everything first, so two
-     * directions are never energised at once even for an instant.
+     * directions are never energized at once even for an instant.
      */
     motion_stop();
 
@@ -191,7 +191,7 @@ static int stalled(uint32_t current)
 #if ENH_END_OF_TRAVEL_STOP
 /* The mirror of stalled(): current falling to zero while driving means every
  * motor has opened its own limit switch. Zero is also what the channel reads
- * before anything is energised, hence MOTION_ARM_MS.
+ * before anything is energized, hence MOTION_ARM_MS.
  */
 static int arrived(uint32_t current)
 {

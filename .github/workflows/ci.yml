@@ -44,3 +44,38 @@ jobs:
             build/socozi.bin
             build/socozi.elf
             build/socozi.map
+
+  # The ESP32 bridge. Separate job because it downloads a RISC-V toolchain and
+  # an ESP-IDF that the firmware build has no use for.
+  bridge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ARM toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi
+
+      # ESPHome caches PlatformIO and the toolchain outside the tree.
+      - name: Cache ESPHome toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.esphome
+          key: esphome-${{ runner.os }}-${{ hashFiles('Makefile') }}
+          restore-keys: esphome-${{ runner.os }}-
+
+      # Builds the chair firmware, generates the layout and image headers from
+      # it, then compiles the ESP image around them. Secrets are placeholders
+      # created from secrets.yaml.example; nothing here is flashed.
+      - name: Build the bridge
+        run: make ci-esp
+
+      - name: Archive bridge firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: socozi-bridge
+          path: esphome/.esphome/build/socozi-chair/.pioenvs/socozi-chair/firmware.bin

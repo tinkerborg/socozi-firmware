@@ -287,7 +287,7 @@ static void route_event(struct button_event ev)
          * Reaching for a control to halt the chair should not also switch that
          * control on, or drive the motor the button belongs to.
          *
-         * preset_update() sees the same press and does the cancelling; this is
+         * preset_update() sees the same press and does the canceling; this is
          * only here to swallow the press before anything else acts on it.
          */
         if (preset_moving()) {

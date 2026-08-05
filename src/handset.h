@@ -39,7 +39,7 @@ enum {
  * state and 6-7 from the headrest axis.
  *
  * The factory firmware blinks bit 7 under some conditions rather than holding
- * it solid; that behaviour is not reproduced here.
+ * it solid; that behavior is not reproduced here.
  */
 #define LED_POWER         (1u << 0)
 #define LED_MASSAGE       (1u << 1)

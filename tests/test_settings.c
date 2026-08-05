@@ -1,6 +1,6 @@
 /* The persistent settings store, enhancements-spec.md §2.4.
  *
- * The interesting behaviour is all in how the log survives things: a reset, a
+ * The interesting behavior is all in how the log survives things: a reset, a
  * page that fills up, a flash that refuses, a write torn in half. The fake in
  * fakes.c models the real constraint that a write can only clear bits, so a
  * store that tried to rewrite a record in place fails here exactly as it would

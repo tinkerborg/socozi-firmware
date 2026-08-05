@@ -19,6 +19,20 @@
 
 #include "enhancements.h"
 
+/* The massage engine's tick, and the factory table's ceiling on a single
+ * lumbar inflation. In the header because the lumbar level is stored and
+ * reported in 100 ms units, so anything turning that into a percentage needs
+ * both — the ESP32 bridge among them.
+ */
+#define MASSAGE_TICK_MS 100
+
+#define LUMBAR_INFLATE_MAX_MS (200 * MASSAGE_TICK_MS)
+
+/* Massage auto-off. The factory sets a countdown of 15 and decrements it once
+ * per minute, clearing the massage bit when it runs out.
+ */
+#define MASSAGE_TIMEOUT_MS (15u * 60u * 1000u)
+
 /* Handle a MASSAGE or LUMBAR press edge. The caller is responsible for the
  * POWER gate.
  */

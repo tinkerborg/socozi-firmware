@@ -117,7 +117,7 @@ one of these three axes is the lumbar pump rather than a motor.
 Per axis the logic is: detect change → reset a debounce counter → then branch on
 how long the button has been held:
 
-- counter `< 2..6` → one set of `gpio_set_by_id` calls (tap behaviour)
+- counter `< 2..6` → one set of `gpio_set_by_id` calls (tap behavior)
 - counter `> 5`    → different calls, plus latch bits set in the struct (hold)
 
 So taps and holds do different things. Worth pinning down. It may be how
@@ -468,7 +468,7 @@ Since each direction needs its own *pair* of pins, this is one motor with four
 control lines, most likely two relays per polarity, not two motors driven
 together. An earlier guess in this file that it was two motors was wrong.
 
-Note the handset labelling is counter-intuitive: the ▲ button reclines the seat
+Note the handset labeling is counter-intuitive: the ▲ button reclines the seat
 back **down**. Directions here are recorded by button, not by physical motion.
 
 **Third axis** (`state+2`, PB11/PB14): driven in both directions, **nothing
@@ -492,7 +492,7 @@ Three full-width bladders stacked vertically in the seat back, all in the lumbar
 region, Southern Motion's own marketing describes the SoCozi air cells as
 covering "the entire lumbar region", which matches.
 
-Cell behaviour:
+Cell behavior:
 
 - A cell inflates when its bit is set and the pump runs.
 - Closing a cell's valve **traps** its air. Cells do not vent on their own. They are not three-way valves, contrary to an earlier hypothesis in this file.
@@ -542,11 +542,11 @@ bottom), the sequence reads as a downward wave followed by a bleed-off:
 | 5    | `0x05` | top + vent          |
 | …    | `0x04` | vent only           |
 
-Inflate travelling down the back, then release from the top. That rolling
+Inflate traveling down the back, then release from the top. That rolling
 handoff is what produces the kneading feel.
 
 An earlier hypothesis in this file, that the valves were three-way and vented
-whenever de-energised, was **wrong**. Cells hold their air when their valve
+whenever de-energized, was **wrong**. Cells hold their air when their valve
 closes; venting requires the exhaust bit.
 
 All five durations are **identical** in both tables, so the timing profile has

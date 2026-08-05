@@ -170,7 +170,7 @@ TEST(heat_off_is_idempotent)
 /* --- levels, enhancements-spec.md §2.3 --- */
 
 /* Each level is its share of the switching period, and the period always opens
- * with the element energised.
+ * with the element energized.
  */
 TEST(each_level_is_its_share_of_the_period)
 {
@@ -187,7 +187,7 @@ TEST(each_level_is_its_share_of_the_period)
 
         CHECK_EQ(heat_level(), want);
 
-        /* Sample a whole period and count how much of it was energised. */
+        /* Sample a whole period and count how much of it was energized. */
         for (uint32_t t = 0; t < HEAT_DUTY_PERIOD_MS; t += 100) {
             run_ms(100);
             lit += fake_pin[PIN_HEATER] ? 1 : 0;

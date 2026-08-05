@@ -394,7 +394,7 @@ TEST(any_button_cancels_an_unattended_macro)
      */
     CHECK(power_is_on());
 
-    /* And it is cancelled for good; releasing does not hand the chair back. */
+    /* And it is canceled for good; releasing does not hand the chair back. */
     release(ENGAGED_MS);
     CHECK_EQ(motion_active(), MOTION_NONE);
 }
@@ -718,7 +718,7 @@ TEST(the_level_sets_the_duty_cycle)
     tap(level_button[0]);               /* level one, 25% */
     tap(HS_HEAT);                       /* accept */
     CHECK_EQ(heat_level(), 1);
-    CHECK_EQ(fake_pin[PIN_HEATER], 1);  /* the cycle opens energised */
+    CHECK_EQ(fake_pin[PIN_HEATER], 1);  /* the cycle opens energized */
 
     run_ms(HEAT_DUTY_PERIOD_MS / 2);    /* past 25%, into the gap */
     CHECK_EQ(fake_pin[PIN_HEATER], 0);
