@@ -1,13 +1,13 @@
 /* Seat heater on PC14.
  *
  * The hardware has no temperature sensor, so nothing here closes a loop. The
- * factory firmware simply energises the element, and the 60 minute auto-off is
+ * factory firmware simply energizes the element, and the 60 minute auto-off is
  * the only bound on a stuck-on heater. That bound is not optional and applies
  * in both builds.
  *
  * With ENH_HEAT_LEVELS the element is duty cycled at one of four levels. See
  * enhancements-spec.md §2.3. A level is still not a temperature, only a
- * fraction of the time the element is energised.
+ * fraction of the time the element is energized.
  *
  * Tapping HEAT switches on at the level you last used, which is the answer
  * nearly every time, and asks nothing. Holding it opens the adjuster, which is
@@ -20,6 +20,14 @@
 #include <stdint.h>
 
 #include "enhancements.h"
+
+/* Wall clock at every level: a safety bound, not a dose. Level one gets the
+ * same 60 minutes as level four, not four times longer.
+ *
+ * In the header because it is part of what this module promises, and because
+ * the ESP32 bridge scales `dbg.heat_ms` against it to report time remaining.
+ */
+#define HEAT_TIMEOUT_MS (60u * 60u * 1000u)
 
 #if ENH_HEAT_LEVELS
 

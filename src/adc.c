@@ -37,7 +37,7 @@ void adc_init(void)
     ADC_CTL1 |= ADC_CTL1_ADCON;
     delay_ms(1);
 
-    /* Calibration is optional and its exact bit behaviour on this part is
+    /* Calibration is optional and its exact bit behavior on this part is
      * unconfirmed, so never block on it, record and move on.
      */
     ADC_CTL1 |= ADC_CTL1_RSTCLB;

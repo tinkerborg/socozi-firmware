@@ -13,18 +13,16 @@
 /* The factory firmware sets a countdown of 60 and decrements it once per
  * minute, clearing the heat flag when it runs out. See docs/firmware-spec.md.
  *
- * Wall clock at every level: a safety bound, not a dose. Level one gets the
- * same 60 minutes as level four, not four times longer.
+ * HEAT_TIMEOUT_MS is in heat.h.
  */
-#define HEAT_TIMEOUT_MS (60u * 60u * 1000u)
 
 static int      on;
 static uint32_t on_since_ms;
 
 #if ENH_HEAT_LEVELS
 
-/* Percent of HEAT_DUTY_PERIOD_MS the element is energised, indexed by level.
- * Level 4 is 100%, which is continuous, and so reference behaviour.
+/* Percent of HEAT_DUTY_PERIOD_MS the element is energized, indexed by level.
+ * Level 4 is 100%, which is continuous, and so reference behavior.
  */
 static const uint8_t duty_pct[HEAT_LEVEL_MAX + 1] = { 0, 25, 50, 75, 100 };
 
@@ -205,7 +203,7 @@ void heat_update(void)
 
 #if ENH_HEAT_LEVELS
     /* Phased from the moment heat came on, so the cycle always opens with the
-     * element energised rather than in a gap.
+     * element energized rather than in a gap.
      */
     {
         uint32_t phase = (ms_ticks - on_since_ms) % HEAT_DUTY_PERIOD_MS;

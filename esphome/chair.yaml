@@ -1,0 +1,200 @@
+# SoCozi recliner bridge, on a Seeed XIAO ESP32-C3.
+#
+# Wiring (docs/esphome-design.md §1):
+#
+#   5 V      chair J12, always live
+#   GND      chair J12
+#   D4 GPIO6 SWCLK -> PA14, 100 R in series
+#   D5 GPIO7 SWDIO -> PA13, 100 R in series
+#
+# Build with `make esp` from the repository root, not with esphome directly:
+# the component needs two headers generated from the firmware build, and the
+# image it carries has to be the one the current tree produces.
+#
+# Put wifi credentials in esphome/secrets.yaml:
+#
+#   wifi_ssid: "..."
+#   wifi_password: "..."
+#   api_key: "..."          # 32 bytes, base64
+#   ota_password: "..."
+
+substitutions:
+  name: socozi-chair
+  friendly_name: Chair
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: seeed_xiao_esp32c3
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: components
+
+logger:
+  # The XIAO has no USB-serial chip; its USB-C goes straight to the C3's
+  # built-in USB-Serial-JTAG. Without this the logs go out GPIO20/21 instead,
+  # where nothing is listening.
+  hardware_uart: USB_SERIAL_JTAG
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Entities on http://socozi-chair.local/ without going through Home Assistant.
+# Handy on the bench: it is the same state the API publishes, in a browser.
+web_server:
+  port: 80
+
+socozi:
+  id: chair
+  swclk_pin: GPIO6
+  swdio_pin: GPIO7
+  update_interval: 1s
+
+binary_sensor:
+  - platform: socozi
+    type: power
+    name: Power
+  - platform: socozi
+    type: heat
+    name: Heat
+  - platform: socozi
+    type: massage
+    name: Massage
+  - platform: socozi
+    type: lumbar
+    name: Lumbar
+  - platform: socozi
+    type: moving
+    name: Moving
+  - platform: socozi
+    type: at_home
+    name: Flat
+  - platform: socozi
+    type: link
+    name: Chair link
+
+sensor:
+  - platform: socozi
+    type: recline
+    name: Recline
+  - platform: socozi
+    type: headrest
+    name: Headrest
+  - platform: socozi
+    type: heat_level
+    name: Heat level
+  - platform: socozi
+    type: heat_remaining
+    name: Heat remaining
+  - platform: socozi
+    type: massage_level
+    name: Massage intensity
+  - platform: socozi
+    type: massage_remaining
+    name: Massage remaining
+  - platform: socozi
+    type: lumbar_level
+    name: Lumbar firmness
+
+  # Diagnostics. Hidden by default in Home Assistant, and the reason the chair
+  # is worth instrumenting at all: the travel constants are still guesses and
+  # these are how they get measured.
+  - platform: socozi
+    type: recline_ms
+    name: Recline travel
+  - platform: socozi
+    type: headrest_ms
+    name: Headrest travel
+  - platform: socozi
+    type: current
+    name: Motor current
+  - platform: socozi
+    type: massage_step
+    name: Massage step
+  - platform: socozi
+    type: valves
+    name: Valves
+  - platform: socozi
+    type: inputs
+    name: Unidentified inputs
+  # loop_ticks and handset_frames are deliberately not here. Both climb every
+  # poll, so they never stop publishing and they fill the recorder with a
+  # number whose only real question is "is it moving at all" — which the
+  # Chair link sensor already answers. The types still exist if you want to
+  # watch one on the bench.
+  - platform: socozi
+    type: handset_errors
+    name: Handset errors
+  - platform: socozi
+    type: presses
+    name: Button presses
+  - platform: socozi
+    type: stops
+    name: Safety stops
+  - platform: socozi
+    type: stalls
+    name: Stalls
+  - platform: socozi
+    type: arrivals
+    name: End-of-travel stops
+  - platform: socozi
+    type: auto_moves
+    name: Auto moves
+  - platform: socozi
+    type: presets_saved
+    name: Presets saved
+  - platform: socozi
+    type: presets_recalled
+    name: Presets recalled
+  - platform: socozi
+    type: settings_writes
+    name: Settings writes
+  - platform: socozi
+    type: settings_erases
+    name: Settings page erases
+  - platform: socozi
+    type: settings_errors
+    name: Settings errors
+
+text_sensor:
+  - platform: socozi
+    type: motion
+    name: Motion
+  - platform: socozi
+    type: version
+    name: Chair firmware version
+
+update:
+  - platform: socozi
+    id: chair_firmware
+    name: Chair firmware
+    # Installing halts the chair and reprograms it. It waits for the chair to
+    # be idle either way, but leave this off unless you want that to happen
+    # without being asked.
+    auto_install: false
+
+# Same thing as the update entity's Install, as a plain button. Home Assistant
+# renders the update entity properly; the ESPHome web UI does not always, and
+# this works in both.
+button:
+  - platform: template
+    name: Install chair firmware
+    entity_category: config
+    icon: mdi:download
+    on_press:
+      - update.perform: chair_firmware

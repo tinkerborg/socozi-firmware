@@ -5,7 +5,7 @@
  *
  *     monitor mdw 0x20000000 40
  *
- * Write-only from the firmware's side: nothing here feeds back into behaviour,
+ * Write-only from the firmware's side: nothing here feeds back into behavior,
  * so a debugger can read it freely and a corrupt value cannot move the chair.
  *
  * Field order here is authoritative; offsets have changed as fields were added,
@@ -18,6 +18,14 @@
 #include <stdint.h>
 
 #include "enhancements.h"
+
+/* The ESP32 bridge, docs/esphome-design.md. Adds two fields to the block; see
+ * the note above the enhancement fields for why that is a build option rather
+ * than something always present.
+ */
+#ifndef BRIDGE
+#define BRIDGE 0
+#endif
 
 #define DEBUG_MAGIC 0x44424730u  /* "DBG0" */
 
@@ -122,6 +130,19 @@ struct debug_block {
 #if ENH_PRESET
     uint32_t presets_saved;
     uint32_t presets_recalled;
+#endif
+
+    /* --- ESP32 bridge, BRIDGE ---
+     *
+     * The bridge reads this whole block over SWD once a second and publishes it
+     * to Home Assistant. These two are the only fields that exist for its sake
+     * rather than for a debugger's, and both spare it a search: without them it
+     * would have to scan SRAM for the RTT magic string, and read the chair's
+     * firmware version out of flash at an offset it would have to be told.
+     */
+#if BRIDGE
+    uint32_t version;       /* FW_VERSION, see version.h */
+    uint32_t rtt_cb;        /* &_SEGGER_RTT, or 0 when RTT is compiled out */
 #endif
 };
 

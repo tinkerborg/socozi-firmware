@@ -23,11 +23,19 @@
 
 #include <stdint.h>
 
-/* 64 KiB in 16 pages. The last one is the settings store and nothing else may
- * live there; gd32e230c8.ld shortens the FLASH region to match, so the linker
- * cannot place code in it. Change one and change the other.
+/* 64 KiB in 64 pages of 1 KiB.
+ *
+ * 1 KiB is the FMC's erase granularity, not the 4 KiB this used to assume.
+ * Measured on the chair, over the ESP32 bridge: after erasing 0x08000000, a
+ * write to 0x08000400 came back with PGERR, so the erase had covered exactly
+ * one kilobyte. The old value was never caught because the store only erases
+ * once it has filled, and it had not.
+ *
+ * The store is one page, and nothing else may live in it. gd32e230c8.ld
+ * reserves the last 4 KiB rather than the last 1 KiB, so there is room to grow
+ * the store without moving code; only the first page of that is used today.
  */
-#define FLASH_PAGE_SIZE  4096u
+#define FLASH_PAGE_SIZE  1024u
 #define FLASH_STORE_ADDR 0x0800F000u
 
 uint32_t flash_read(uint32_t addr);

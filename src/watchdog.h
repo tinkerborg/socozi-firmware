@@ -7,7 +7,7 @@
  * Why bother: every other safety bound in this firmware, the motion timeout,
  * the heater auto-off, stall detection, is enforced by the same loop that
  * would be stuck if the firmware hung. The watchdog is the only thing that
- * covers that case, and a hang with the heater or a motor energised is exactly
+ * covers that case, and a hang with the heater or a motor energized is exactly
  * the failure worth covering.
  */
 

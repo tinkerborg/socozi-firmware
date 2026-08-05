@@ -20,6 +20,7 @@ This firmare offers several enhancements over the OEM firmware:
 - Previous settings memory, persisted to nvram so it's preserved across power cycles
 - Double-tap power button turns off massage/lumbar/support and lowers recliner/head rest
 - Configurable presets for massage, heat, lumbar, recline, and head rest
+- Support for ESPHome companion device connected via SWD pins
 
 ## Usage
 
@@ -112,7 +113,7 @@ package.
 
 ### Hardware
 
-An openocd compatible SWD probe on the board's SWD header, which is labelled.
+An openocd compatible SWD probe on the board's SWD header, which is labeled.
 Any CMSIS-DAP probe should work, and can be configured by modifying the
 `OPENOCD_ARGS` setting in the Makefile.
 
@@ -159,7 +160,7 @@ monitor mdw 0x20000000 40
 ```
 
 The block is read only as far as the firmware is concerned. Nothing in it feeds
-back into behaviour, so a debugger cannot drive an output through it and a
+back into behavior, so a debugger cannot drive an output through it and a
 stray write cannot move the chair.
 
 Field offsets move whenever the struct changes, so pull them from the map file
@@ -200,7 +201,7 @@ This targets one board in one chair. If yours is different, start with the pin
 map in [docs/firmware-spec.md](docs/firmware-spec.md#3-pin-assignment) and the
 valve and massage tables in `src/pneumatics.c`.
 
-Behaviour changes go in the spec first, then the code. Almost every requirement
+Behavior changes go in the spec first, then the code. Almost every requirement
 in here was recovered by reading disassembly, and the reasoning behind a number
 is worth more than the number.
 

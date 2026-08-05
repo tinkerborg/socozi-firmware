@@ -7,7 +7,7 @@ static uint32_t down_ms;
 static int      hold_done;
 
 /* Double-tap tracking. The window is measured release to release, and is only
- * honoured when both taps are the same button.
+ * honored when both taps are the same button.
  */
 static uint32_t tap_ms;
 static uint8_t  tap_button;

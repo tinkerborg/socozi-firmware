@@ -34,7 +34,7 @@ static int any_recline_pin(void)
         || fake_pin[PIN_RECLINE_C] || fake_pin[PIN_RECLINE_D];
 }
 
-TEST(nothing_is_energised_during_the_settle)
+TEST(nothing_is_energized_during_the_settle)
 {
     reset();
     motion_request(MOTION_RECLINE_UP);
@@ -71,7 +71,7 @@ TEST(headrest_sets_direction_before_enabling)
     motion_request(MOTION_HEADREST_DOWN);
 
     CHECK_EQ(fake_pin[PIN_HEADREST_DIR], 1);    /* set immediately */
-    CHECK_EQ(fake_pin[PIN_HEADREST_EN], 0);     /* but not energised */
+    CHECK_EQ(fake_pin[PIN_HEADREST_EN], 0);     /* but not energized */
 
     run_ms(MOTION_SETTLE_MS);
     CHECK_EQ(fake_pin[PIN_HEADREST_EN], 1);
@@ -93,7 +93,7 @@ TEST(flatten_drives_both_axes)
     CHECK_EQ(fake_pin[PIN_HEADREST_DIR], 1);
 }
 
-/* Two directions must never be energised at once, even for one pass. */
+/* Two directions must never be energized at once, even for one pass. */
 TEST(direction_change_passes_through_a_full_stop)
 {
     reset();
@@ -227,7 +227,7 @@ TEST(a_fault_latches_until_release)
  * itself and current falls to zero. With both axes on one sense channel, zero
  * means every motor has arrived.
  *
- * Zero is also what the channel reads before anything is energised, which is
+ * Zero is also what the channel reads before anything is energized, which is
  * what MOTION_ARM_MS and MOTION_ARRIVED_MS are defending against.
  */
 
@@ -342,7 +342,7 @@ TEST(held_motions_stop_at_the_end_of_travel_too)
 int main(void)
 {
     printf("motion\n");
-    RUN(nothing_is_energised_during_the_settle);
+    RUN(nothing_is_energized_during_the_settle);
     RUN(recline_engages_one_pin_then_the_other);
     RUN(headrest_sets_direction_before_enabling);
     RUN(flatten_drives_both_axes);

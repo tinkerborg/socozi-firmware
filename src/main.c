@@ -13,13 +13,16 @@
  */
 
 #include "adc.h"
+#include "console.h"
 #include "control.h"
 #include "debug.h"
 #include "gd32e23x.h"
 #include "gpio.h"
 #include "handset.h"
+#include "rtt.h"
 #include "settings.h"
 #include "timing.h"
+#include "version.h"
 #include "watchdog.h"
 
 /* How often to poll the handset. It never transmits unprompted. */
@@ -70,7 +73,16 @@ static void debug_init(void)
     }
 
     dbg.adc_min = 0xFFFFFFFF;
-    dbg.magic   = DEBUG_MAGIC;
+
+#if BRIDGE
+    dbg.version = FW_VERSION;
+    dbg.rtt_cb  = rtt_control_block();
+#endif
+
+    /* Last, so the bridge never sees the magic word standing over a block that
+     * is still being filled in.
+     */
+    dbg.magic = DEBUG_MAGIC;
 }
 
 int main(void)
@@ -101,6 +113,10 @@ int main(void)
 
         handset_poll();
         control_update();
+
+#if RTT
+        console_update();
+#endif
 
         dbg.octl_a = gpio_octl_a();
         dbg.octl_b = gpio_octl_b();

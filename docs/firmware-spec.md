@@ -3,7 +3,7 @@
 Normative spec for the replacement firmware in `../src`. Describes what the
 firmware **shall** does, as currently built and verified.
 
-**Process: update this spec before changing the code.** If behaviour and spec
+**Process: update this spec before changing the code.** If behavior and spec
 disagree, one of them is a bug, decide which, then fix it.
 
 Background on how the factory firmware works is in
@@ -23,7 +23,7 @@ Cortex-M23, 64 KiB flash, board silkscreen `PT613A`).
 Goals, in priority order:
 
 1. Never move an actuator unsafely.
-2. Match the factory firmware's user-facing behaviour from the wired handset.
+2. Match the factory firmware's user-facing behavior from the wired handset.
 3. Expose control and state to an external network device.
 4. Remain debuggable over SWD at all times.
 
@@ -32,7 +32,7 @@ Goals, in priority order:
 - **SHALL** run on the GD32E23x at its reset default clock (8 MHz IRC), with no
   PLL configuration. All timing derives from a 1 kHz SysTick.
 - Two builds from one source tree, each with `.elf` and `.map` alongside the
-  `.bin`: `build/socozi.bin`, the default, which adds the behaviour in
+  `.bin`: `build/socozi.bin`, the default, which adds the behavior in
   [enhancements-spec.md](enhancements-spec.md), and
   `build/socozi-reference.bin` from `make reference`, which is this spec and
   nothing more. Everything below applies to both unless it says otherwise.
@@ -45,7 +45,7 @@ Goals, in priority order:
   once per main-loop pass. Every other safety bound here, motion timeout,
   stall detection, heater auto-off, is enforced by the same loop that would be
   stuck if the firmware hung. The watchdog is the only cover for that case, and
-  a hang with the heater or a motor energised is precisely the failure worth
+  a hang with the heater or a motor energized is precisely the failure worth
   covering.
 
   Verified on the chair: `RCU_RSTSCK` bit 29 (FWDGTRSTF) sets after a halt, and
@@ -63,9 +63,9 @@ Goals, in priority order:
   It is **set-once**: writing 0 does not clear it, and neither does a system
   reset, only a power cycle. So it is applied by `make debug` alone, never by
   `flash`, `backup` or `restore`. A chair that has just been flashed should not
-  be left with debug behaviour latched on.
+  be left with debug behavior latched on.
 
-  This also explains the factory firmware's behaviour. It never references that
+  This also explains the factory firmware's behavior. It never references that
   register at all, so its watchdog always resets on halt.
 - **SHALL** keep SWD (PA13/PA14) functional and never repurpose those pins.
 - **SHALL** be recoverable by reflashing `../factory-firmware.bin`.
@@ -104,11 +104,11 @@ are the intended landing spot for a network module.
 
 ## 4. Safety requirements
 
-Layered defences. Stall detection (§9) is the primary one; the rest hold even
+Layered defenses. Stall detection (§9) is the primary one; the rest hold even
 if it fails or is mis-tuned. None are optional.
 
 - **SHALL** pass through a full stop when changing direction on any axis, so two
-  directions are never energised simultaneously, even transiently. **[done]**
+  directions are never energized simultaneously, even transiently. **[done]**
 - **SHALL** stop all motion if no valid handset frame is received for
   **250 ms**. A disconnected or dead handset must not leave a motor running.
   **[done]**
@@ -118,7 +118,7 @@ if it fails or is mis-tuned. None are optional.
   There is no temperature sensor, so that timer is the only bound.
 - **SHALL** stop a motion whose current indicates a locked rotor. **[done]**, §9.
 - The debug interface **SHALL** be observation only. Nothing written into the
-  debug block may drive an output or alter behaviour. **[done]**
+  debug block may drive an output or alter behavior. **[done]**
 
   An earlier version accepted commands there that could hold any pin at any
   level indefinitely, bypassing stall detection, the motion timeout and the
@@ -304,7 +304,7 @@ Three axes exist in hardware. Only two are connected on this chair.
 
 ### Relay sequencing **[done]**
 
-The factory firmware never energises a motor at the instant it selects a
+The factory firmware never energizes a motor at the instant it selects a
 direction. Per axis it keeps a tick counter that resets on any button change,
 then:
 
@@ -348,7 +348,7 @@ register and latched.
 | `0x04` | exhaust (shared) |
 | `0x08` | bottom bladder   |
 
-Verified behaviour:
+Verified behavior:
 
 - A cell inflates with its bit set and the pump (PC13) running.
 - Closing a cell's valve **traps** its air. Cells do not self-vent.
@@ -474,7 +474,7 @@ Massage **SHALL** auto-off after **15 minutes**, see "Auto-off timers".
 Plain on/off toggle. **There is no temperature feedback anywhere in this
 hardware**, PC14 is driven directly from one flag bit, nothing is measured.
 
-Factory behaviour, from `FUN_0800158C`:
+Factory behavior, from `FUN_0800158C`:
 
 - Gated behind POWER, like massage and lumbar.
 - Refuses to act while recline or headrest is moving, and stops those axes.
@@ -521,7 +521,7 @@ ceiling.
 Bottom bladder only, matching the factory table at `0x080049DC`. LUMBAR cycles
 through four states, one per press:
 
-| State   | Valves | Pump | Behaviour                          |
+| State   | Valves | Pump | Behavior                          |
 |---------|--------|------|------------------------------------|
 | off     | `0x00` | off  | idle                               |
 | inflate | `0x08` | on   | fills the bottom bladder           |
@@ -532,7 +532,7 @@ Inflate **SHALL** run until the next press, or until the ceiling. It is not a
 fixed-duration fill. The ceiling is the factory table's 200 ticks = **20 s**.
 **[done]**
 
-LED behaviour: on from the first press, stays on through hold, out when the
+LED behavior: on from the first press, stays on through hold, out when the
 third press starts the deflate. **[done]**
 
 ### POWER **[done]**
@@ -548,7 +548,7 @@ which work regardless.
 - The POWER LED **SHALL** be lit whenever the comfort functions are enabled.
   **[done]**
 
-The earlier hold-to-bleed behaviour has been removed. It existed as a failsafe
+The earlier hold-to-bleed behavior has been removed. It existed as a failsafe
 while the valve mapping was unknown; powering off now vents anyway, so it was
 redundant.
 
@@ -577,13 +577,13 @@ if (hold_counter > 0x13) {
 }
 ```
 
-Behaviour:
+Behavior:
 
 - **Short press** (counter 1–`0x13`, then released) → ordinary power toggle.
 - **Long press** (counter > `0x13`) → start driving both motion axes toward
   their down/flat position and set the auto-move flag.
 - **On release after a long press** → stop everything and load a timer with
-  `0x29C` (668). The same variable is initialised to `0x32C` (812) at boot.
+  `0x29C` (668). The same variable is initialized to `0x32C` (812) at boot.
 
 The threshold is 20 counts of action `0xF0`. That action's rate is set by a
 compiler-generated division in the SysTick handler, the constants involved
@@ -615,7 +615,7 @@ Requirements:
   runs until the limit switches open or the bound expires. **[done]**, it uses
   the same 30 s `MOTION_TIMEOUT_MS` ceiling as any other motion.
 - What the `0x29C` timer gates is **not yet understood**. It is written on
-  release and initialised at boot, but I have not found what reads it.
+  release and initialized at boot, but I have not found what reads it.
 
 As implemented:
 
@@ -641,7 +641,7 @@ the chair doesn't reach flat in practice.
 
 The factory firmware **never writes flash at runtime**. The only reference to
 the flash controller (`0x40022000`) anywhere in the image is `FUN_08003EFC`,
-which is clock initialisation: enable HXTAL, wait for stability, set flash wait
+which is clock initialization: enable HXTAL, wait for stability, set flash wait
 states, configure and engage the PLL. No erase, no program.
 
 So nothing is persisted across power cycles, and the chair always boots with
@@ -660,7 +660,7 @@ PLL**, where we run from the 8 MHz internal RC.
 
 **Channel 7 (PA7) is the current sense**, confirmed by logging it through motor
 runs. It reads 0 at rest and rises the moment a motor draws current. Earlier
-notes in this repo claimed it stayed 0 under load; that was an artefact of
+notes in this repo claimed it stayed 0 under load; that was an artifact of
 sampling after the motion had already stopped.
 
 Measured on this chair, via the debug block's sample log:
@@ -701,7 +701,7 @@ level continuously.
 ### Still open
 
 Current dropping to zero while a motion is driving is an unambiguous "limit
-reached" signal. We currently keep the relay energised into an open switch until
+reached" signal. We currently keep the relay energized into an open switch until
 the button is released. Dropping it on that signal would be quieter and easier
 on the contacts. Not implemented.
 
@@ -722,7 +722,7 @@ readable over SWD without symbols.
   output states, handset frame/byte/error counters, current motion, safety stop
   count, and pneumatic, massage and heat state. **[done]**
 - **SHALL** be write-only from the firmware's side. No field may be read back
-  and acted on, so the block cannot influence behaviour. See §4. **[done]**
+  and acted on, so the block cannot influence behavior. See §4. **[done]**
 
 Field layout is in [../README.md](../README.md#debug-block).
 
@@ -765,7 +765,7 @@ and `timing.h`. `make test` links host fakes for those two and runs the real
 logic natively, with the test driving `ms_ticks` by hand, so a two minute
 massage cycle verifies instantly.
 
-Behaviour specified here **SHOULD** have a test. Everything currently covered:
+Behavior specified here **SHOULD** have a test. Everything currently covered:
 the full 39 step massage pattern and its 1185 tick length, pump gating in all
 three cases, the lumbar cycle, both auto-off timers, motion pause and resume,
 relay sequencing and stagger, stall detection against measured inrush and
@@ -786,7 +786,7 @@ macro.
 `handset.c` itself is still not covered. It touches USART registers directly, so
 framing and checksum would need splitting out from the peripheral access first.
 
-## 13. Known deviations from factory behaviour
+## 13. Known deviations from factory behavior
 
 Deliberate, not defects:
 

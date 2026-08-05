@@ -11,7 +11,7 @@ is the goal. An ESP32 will be added for connectivity.
 
 ## Target
 
-- **MCU**: GD32E23x, Cortex-M23, LQFP48, 64 KiB flash @ `0x08000000`, 4 KiB pages
+- **MCU**: GD32E23x, Cortex-M23, LQFP48, 64 KiB flash @ `0x08000000`, 1 KiB pages
 - **Language**: C. MicroPython is not viable. The chip has 64 KiB flash and
   single-digit KiB of RAM; MicroPython needs roughly 10× that before any
   application code.
@@ -85,7 +85,7 @@ different interface on free pins. Whether USART1 physically exists on this die
 is **unverified**, the vendor HAL in the factory image references it, but that
 proves nothing. Check the GD32E230 datasheet rather than assuming.
 
-## Behaviour worth preserving
+## Behavior worth preserving
 
 ### Over-current cutoff, safety critical
 
@@ -135,7 +135,7 @@ on this chair. See the timing-profile section of `firmware-spec.md`.
 ## Persistence. There is none
 
 **The factory firmware never writes flash at runtime.** The only reference to
-the flash controller in the image is in clock initialisation, setting wait
+the flash controller in the image is in clock initialization, setting wait
 states. Nothing is stored across power cycles, and the chair always boots with
 everything off.
 
@@ -187,7 +187,7 @@ the buttons appear. See `firmware-map.md`.
   6-byte frame at 50 Hz and parse the 4-byte reply.
 - Safety bounds, since there is still no stall detection: a 250 ms
   handset-silence timeout, a 30 s hard cap per motion, and every direction
-  change passes through a full stop so two directions are never energised at
+  change passes through a full stop so two directions are never energized at
   once.
 - The probe block is zeroed at startup. It lives in a `NOLOAD` section, so
   before this fix stale RAM from a previous image read back as plausible
@@ -199,7 +199,7 @@ several ticks before acting.
 
 - **Massage**, the OEM 16-step valve pattern, toggled by the MASSAGE button.
 - **Lumbar**, bottom bladder, cycling inflate → hold → deflate → off, matching
-  the factory behaviour.
+  the factory behavior.
 - **Handset LEDs**, the outbound payload's first byte is a bit-per-button
   bitmap; recline and headrest LEDs light while their motion runs.
 - POWER held bleeds all bladders.

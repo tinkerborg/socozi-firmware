@@ -1,6 +1,6 @@
 /* Recline and headrest.
  *
- * Recline needs both pins of a pair energised; neither does anything alone.
+ * Recline needs both pins of a pair energized; neither does anything alone.
  * The board has a third motion axis (PB11/PB14) that is not connected on this
  * chair, so it is not exposed here.
  *
@@ -17,7 +17,7 @@
 
 /* --- Tunables ---
  *
- * Relay sequencing. The factory firmware never energises a motor at the moment
+ * Relay sequencing. The factory firmware never energizes a motor at the moment
  * it selects a direction: it sets the direction pin, waits, and only then
  * closes the enable. That guarantees the direction relay has settled before any
  * current flows, so polarity never switches under load, which is what keeps

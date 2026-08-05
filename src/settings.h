@@ -82,7 +82,7 @@ void settings_set_massage_level(uint8_t level);
 
 /* Call every loop. Commits a pending change when `quiet` is true.
  *
- * `quiet` is the caller's judgement that stalling the loop for the length of a
+ * `quiet` is the caller's judgment that stalling the loop for the length of a
  * flash write is currently free: nothing moving, and nothing being chosen. A
  * commit is never urgent, so it can wait indefinitely for one.
  */

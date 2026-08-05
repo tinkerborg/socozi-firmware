@@ -30,7 +30,9 @@ Control box PCB, silkscreen **`PT613A`**.
 - **MCU**: LQFP48, identified over SWD as **GD32E23x**
   - Cortex-M23 r1p0 (CPUID `0x411cd200`, PARTNO `0xD20`)
   - DBG ID register `0x40015800` = `0x19090410`
-  - 64 KiB flash at `0x08000000`, 16 pages of 4 KiB, **not read protected**
+  - 64 KiB flash at `0x08000000`, 64 pages of 1 KiB, **not read protected**.
+    The page size is the FMC's erase granularity, measured on the chair: after
+    erasing `0x08000000`, programming `0x08000400` sets PGERR.
   - Flash size register `0x1FFFF7E0` = `0x00080040` (64 KiB)
   - 8 KiB SRAM at `0x20000000`
 - Runs at the reset default 8 MHz IRC. No PLL setup anywhere in the factory
@@ -49,7 +51,7 @@ this part. It faults. Use `0x40015800`.
 Two motors, one pump, one heater.
 
 - **Recline**: one motor, moving the seat back and footrest together. Each
-  direction needs both pins of a pair energised, neither does anything alone.
+  direction needs both pins of a pair energized, neither does anything alone.
 - **Headrest**: one motor, separate direction and enable pins.
 - **Third motion axis**: present on the board (PB11/PB14), not connected on
   this chair. Probably another model's feature on a shared board.
@@ -80,7 +82,7 @@ use these same three bladders, lumbar being the bottom one alone.
 
 ## Debug access
 
-SWD on the labelled header, via a Bus Pirate 6 running native CMSIS-DAP
+SWD on the labeled header, via a Bus Pirate 6 running native CMSIS-DAP
 firmware. No special probe needed. See the Makefile for the exact invocation
 the build uses.
 

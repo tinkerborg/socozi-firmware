@@ -132,7 +132,7 @@ TEST(pump_stays_on_across_valve_changes)
 }
 
 /* Step 13 closes everything for 500 ms, so the following pulse step really
- * does start with the pump off. That part is factory behaviour, not a bug.
+ * does start with the pump off. That part is factory behavior, not a bug.
  */
 TEST(all_closed_step_resets_the_pump_delay)
 {
@@ -156,7 +156,7 @@ TEST(all_closed_step_resets_the_pump_delay)
     CHECK_EQ(fake_pin[PIN_PUMP], 1);
 }
 
-TEST(motion_pauses_massage_without_cancelling_it)
+TEST(motion_pauses_massage_without_canceling_it)
 {
     reset();
     press(HS_MASSAGE);
@@ -167,7 +167,7 @@ TEST(motion_pauses_massage_without_cancelling_it)
     run_ms(1);
     CHECK_EQ(fake_shift, 0);
     CHECK_EQ(fake_pin[PIN_PUMP], 0);
-    CHECK(pneumatics_massage_on());      /* paused, not cancelled */
+    CHECK(pneumatics_massage_on());      /* paused, not canceled */
 
     motion_request(MOTION_NONE);
     run_ms(1);
@@ -424,7 +424,7 @@ int main(void)
     RUN(pump_waits_out_the_delay_then_runs);
     RUN(pump_stays_on_across_valve_changes);
     RUN(all_closed_step_resets_the_pump_delay);
-    RUN(motion_pauses_massage_without_cancelling_it);
+    RUN(motion_pauses_massage_without_canceling_it);
     RUN(massage_stops_after_fifteen_minutes);
     RUN(lumbar_cycles_inflate_hold_deflate);
     RUN(lumbar_inflation_has_a_ceiling);
